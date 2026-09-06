@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fina"
+version = "0.1.0"
+description = "Personal wealth and tax tracking pipeline: ingestion, reconciliation and Section 1 net-worth bridge."
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "hypothesis>=6",
+    "mutmut>=3",
+    "mypy>=1.10",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+fina = "fina.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+xfail_strict = true
+markers = []
+pythonpath = ["src"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/fina"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["src/fina"]
+warn_unused_configs = true
+disallow_any_explicit = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mutmut]
+# test_gates_meta.py is deliberately excluded from the runner mutmut uses: it does whole-repo
+# static analysis (AST scans, subprocess mypy/ruff calls) that is meaningless -- and, because
+# mutmut's combined "mutants" module embeds every mutated variant's source text side by side,
+# actively misleading -- when pointed at mutmut's generated trampoline files instead of the
+# real source tree. Mutation kill-rate is judged by the behavioural suites (test_money.py,
+# test_models.py, ...); the meta-gates run separately via the plain `pytest` invocation in the
+# verification protocol.
+source_paths = ["src/fina"]
+pytest_add_cli_args_test_selection = ["tests", "--ignore=tests/test_gates_meta.py"]
+runner = "python -m pytest -x -q"
