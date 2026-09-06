@@ -4,9 +4,13 @@ Living document. Each entry lists the options considered, which one was adopted,
 
 ## 1. `DELIVERY/MIGRATION` rows in the Trade Republic export
 
-### 1.1 The observed fact
+### 1.1 The observed fact and its real-world cause
 
-In the real export reviewed, on **2025-06-16** (confirmed by searching the full file: it happens only on this single date, nowhere else), a pair of rows appears for **every open position** (stocks, crypto...) within the same minute: one with the quantity negative, one with the same quantity positive, same ISIN, same price, no `amount` (no cash effect). It happens simultaneously for every asset the user held that day — not an event tied to one asset, but to the whole account. Everything points to an internal technical migration by the broker (e.g. a custody-system change), not a real buy/sell: it changes neither what you hold nor your cash.
+In the real export reviewed, on **2025-06-16** (confirmed by searching the full file: it happens only on this single date, nowhere else), a pair of rows appears for **every open position** (stocks, crypto...) within the same minute: one with the quantity negative, one with the same quantity positive, same ISIN, same price, no `amount` (no cash effect). It happens simultaneously for every asset the user held that day — not an event tied to one asset, but to the whole account.
+
+This is not a generic "custody system change" guess — it matches a documented, dated event. Trade Republic obtained a full ECB banking license in December 2023 and used it through 2025 to open local branches with local IBANs in several EU markets; in Spain this went live with Spanish (ES) IBANs replacing the original German (DE) ones from 5 June 2025 for new customers, with existing customers migrated shortly after via the app. The observed migration date (16 June 2025) falls squarely inside that rollout window, so the `DELIVERY/MIGRATION` pair is Trade Republic re-booking every position under the new Spanish-branch account as part of this account migration — a structural/regulatory rebooking, not a trade. This does not change the conclusion, it confirms it: the event is bank-driven and account-wide, unrelated to any investment decision, so it must never be read as a disposal and reacquisition for cost-basis purposes.
+
+Sources: [Trade Republic accelerates international growth and to open Spanish branch in 2025](https://www.investinspain.org/content/icex-invest/en/noticias-main/2025/trade.html), [Trade Republic receives full banking license from ECB](https://www.businesswire.com/news/home/20231204046066/en/Trade-Republic-receives-full-banking-license-from-ECB), [Trade Republic IBAN español: todo lo que debes saber en 2026](https://www.rankia.com/blog/cuentas-corrientes/6863067-trade-republic-iban-espanol).
 
 ### 1.2 Why it matters
 
@@ -42,10 +46,17 @@ Researched because it directly affects cent-level reconciliation (rule 9 in `CLA
 
 **Decision**: the ledger's `date` = `Fecha operación` (the one that reconciles the balance to the cent). `Fecha valor` is stored as an additional field (`value_date`), useful to cross-check against the real merchant charge date or another related statement's settlement date.
 
-## 4. Own-accounts registry (minimal lifecycle)
+## 4. Own-accounts registry — derived from ingestion, not hand-maintained
 
-To tell an internal transfer (not savings, not an expense) apart from an external flow, every adapter needs to know which IBANs/accounts belong to the user. This is solved with a simple reference table, not business logic scattered across adapters:
+### 4.1 Options considered
 
-`accounts_registry`: `institution, iban_or_account, alias, opened_on, status (active/closed), closed_on`.
+1. A hand-maintained reference file (`institution, iban, alias, opened_on, status`) edited whenever an account opens or closes.
+2. **Derived from the source documents themselves** *(adopted)*: an account is "the user's own" if and only if the user has supplied at least one statement/export for it. Every adapter, in addition to producing `LedgerEntry` rows, extracts an `AccountDeclaration` (`institution, iban_or_account, holder_name, declared_in_file, as_of_date`) from that same file's own metadata (the bank export's header block, the broker export's `CUSTOMER_INBOUND` counterparty/IBAN). The set of own accounts for a run is the union of every `AccountDeclaration` extracted from the files present in that run.
 
-Each adapter looks up this table to mark `is_external_flow = false` whenever a movement's counterparty matches an active row. Adding or closing an account is a new row in this registry, not a code change.
+### 4.2 Why option 2
+
+The user only ever hands over documents for accounts that are theirs — so "this IBAN is mine" is never an unverifiable claim, it is backed by the very statement that proves it, satisfying the traceability rule (rule 10, CLAUDE.md) for free. It also removes a second place that needs manual upkeep in sync with the data: updating which accounts exist is implicit in supplying (or no longer supplying) statements for them, consistent with the stateless, recompute-from-raw-files design (§5.1 of the implementation plan).
+
+### 4.3 Consequence for adapters
+
+An adapter's output is therefore `(list[LedgerEntry], list[AccountDeclaration])`, not just ledger rows. The pipeline first collects every `AccountDeclaration` across all files in the run, then re-runs each adapter's internal/external classification against that combined set (a counterparty matches an own account by IBAN; matching by holder name alone is a lower-confidence fallback — see the full spec for the exact matching order).
