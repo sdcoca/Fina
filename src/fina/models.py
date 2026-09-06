@@ -224,15 +224,14 @@ class AdapterResult:
     warnings: tuple[Warning, ...]
 
 
-def check_duplicate_transaction_ids(
-    source_file: str,
-    id_rows: Sequence[tuple[str, int]],
-) -> None:
+def check_duplicate_transaction_ids(id_rows: Sequence[tuple[str, int]]) -> None:
     """R-2.14: within one file, non-empty ``transaction_id`` values must be unique.
 
     ``id_rows`` is ``(transaction_id, source_row)`` pairs for rows that carry a
     ``transaction_id`` at all (callers must exclude rows with no id). Raises on the first
-    duplicated id, in file order, deterministically.
+    duplicated id, in file order, deterministically. ``DuplicateSourceError`` has no
+    ``source_file`` field for this case (R-1.23's table lists only ``transaction_id`` and
+    ``source_rows``): the caller's own file is implicit in which adapter call raised it.
     """
     seen: dict[str, list[int]] = {}
     for transaction_id, source_row in id_rows:

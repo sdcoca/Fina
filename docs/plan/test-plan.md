@@ -389,7 +389,7 @@ packages land; a work package is not done until its rules appear here.
 | R-5.3 | T-107, T-217, T-218 |
 | R-5.4 | T-137 |
 | R-6.1 | T-112, T-113 |
-| R-6.2 | T-101, T-102, T-103 |
+| R-6.2 | T-101, T-102, T-103, `test_full_field_propagation_on_a_plain_row` |
 | R-6.2a | T-067, T-104 |
 | R-6.3 | T-111 |
 | R-6.4 | T-105 |
@@ -400,11 +400,11 @@ packages land; a work package is not done until its rules appear here.
 | R-6.9 | T-403 |
 | R-6.10 | T-129 |
 | R-6.11 | T-130, T-131 |
-| R-6.12 | T-132, T-133 |
-| R-6.13 | T-134 |
+| R-6.12 | T-132, T-133, `test_migration_quantities_mismatch_empty_symbol_asset_falls_back_to_empty_string` |
+| R-6.13 | T-134, `test_migration_zero_amount_string_is_allowed`, `test_migration_nonzero_amount_empty_symbol_asset_falls_back_to_empty_string` |
 | R-6.14 | T-100, T-129 |
-| R-6.15 | T-108 |
-| R-6.16 | T-135 |
+| R-6.15 | T-108, `test_t108b_delivery_unseen_type_not_generalized` |
+| R-6.16 | T-135, `test_entry_id_hash_path_uses_institution_account_file_and_row`, `test_account_declaration_falls_back_to_empty_holder_name` |
 | R-6.17 | T-136 |
 | R-7.1 | T-222 |
 | R-7.2 | T-201, T-202, T-203 |

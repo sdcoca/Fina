@@ -16,7 +16,7 @@ class FinaError(Exception):
     """Base class for every error this package raises."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class ParseError(FinaError):
     """A field could not be parsed as its declared type (R-1.23)."""
 
@@ -34,7 +34,7 @@ class ParseError(FinaError):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class UnknownMovementError(FinaError):
     """A ``(category, type)`` pair or a ``Concepto`` string matches no mapping rule (R-1.23)."""
 
@@ -49,7 +49,7 @@ class UnknownMovementError(FinaError):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class UnsupportedCurrencyError(FinaError):
     """A row's currency is not EUR (R-1.7)."""
 
@@ -64,7 +64,7 @@ class UnsupportedCurrencyError(FinaError):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class MigrationPairError(FinaError):
     """R-6.10..R-6.13 (DELIVERY/MIGRATION pairing) violated."""
 
@@ -81,7 +81,7 @@ class MigrationPairError(FinaError):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class ReconciliationError(FinaError):
     """R-8.2/R-8.5 violated: computed balance disagrees with the declared one."""
 
@@ -99,7 +99,7 @@ class ReconciliationError(FinaError):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class AccountConflictError(FinaError):
     """R-3.3 violated: same IBAN declared under two different holder names."""
 
@@ -115,7 +115,7 @@ class AccountConflictError(FinaError):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class DuplicateSourceError(FinaError):
     """R-2.14 (duplicate transaction_id within a file) or R-2.15 (duplicate file content)."""
 
@@ -140,7 +140,7 @@ class DuplicateSourceError(FinaError):
             )
 
 
-@dataclass(frozen=True)
+@dataclass
 class ValidationError(FinaError):
     """A sign/consistency invariant in spec section 2.5 failed."""
 

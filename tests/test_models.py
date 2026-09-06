@@ -449,17 +449,17 @@ def test_t071_exception_classes_carry_required_fields() -> None:
 
 def test_t117_duplicate_transaction_id_raises() -> None:
     with pytest.raises(DuplicateSourceError) as exc_info:
-        check_duplicate_transaction_ids(SOURCE_FILE, [("tx1", 2), ("tx2", 3), ("tx1", 4)])
+        check_duplicate_transaction_ids([("tx1", 2), ("tx2", 3), ("tx1", 4)])
     assert exc_info.value.transaction_id == "tx1"
     assert exc_info.value.source_rows == (2, 4)
 
 
 def test_duplicate_transaction_id_absent_when_all_unique() -> None:
-    check_duplicate_transaction_ids(SOURCE_FILE, [("tx1", 2), ("tx2", 3)])
+    check_duplicate_transaction_ids([("tx1", 2), ("tx2", 3)])
 
 
 def test_duplicate_transaction_id_empty_input() -> None:
-    check_duplicate_transaction_ids(SOURCE_FILE, [])
+    check_duplicate_transaction_ids([])
 
 
 # ---------------------------------------------------------------------------
