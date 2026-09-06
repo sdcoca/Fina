@@ -648,8 +648,21 @@ two series (`real net worth` solid, `savings only` dashed and muted); the band b
 filled and coloured by the sign of `gap`, with the colour boundary placed at the exact
 linear zero-crossing between adjacent points; direct value labels at the final point; a
 month tooltip that opens **only on click**, is dismissible via its own close control or a
-click anywhere outside it, and is translucent enough to read the chart behind it; no legend
-entries for the band colours; no explanatory footer.
+click anywhere outside it, sized so its text does not wrap at a 390px viewport width, and
+translucent enough (plain alpha, no `backdrop-filter`) to read the chart line/band behind it
+— verified by rendering, not by reading the CSS; no legend entries for the band colours; no
+explanatory footer.
+
+**R-10.2a (mobile-first verification)** The chart, and every other visual surface built
+under WP-9 or later, is designed and verified **primarily at a mobile viewport (~390px
+wide)**, not desktop — this product is mobile-first (CLAUDE.md rule 19). A component sized
+or spaced adequately at a desktop width may cover most of a chart's plotted area at 390px; a
+desktop-only check does not satisfy this rule. Desktop is checked second, as a wider case,
+never first.
+
+**R-10.2b** No visual effect required by this spec depends on `backdrop-filter` or another
+feature of inconsistent support (CLAUDE.md rule 20). Where the mock uses translucency, it is
+plain alpha compositing, which every rendering target handles identically.
 
 **R-10.3** Both light and dark themes MUST be defined via tokens; no colour may be defined
 only inside a media query or theme block.

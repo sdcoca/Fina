@@ -21,6 +21,11 @@
 14. Multidivisa: todo resultado final en euros, coherente con la normativa fiscal española (conversión al tipo de cambio de la fecha de la operación).
 15. Autocrítica: cualquier cuadre que falle debe señalarse antes de presentar el resultado, nunca absorberse en silencio.
 
+## Interfaz visual
+
+19. La aplicación es *mobile-first*. Cualquier verificación visual (mocks, gráficas, informe) se hace primero a un ancho de móvil real (~390px), no en escritorio — un elemento que se ve bien a 900px puede tapar toda la gráfica a 390px. Cuando algo se pueda renderizar y comprobar con un navegador antes de darlo por bueno, se hace así en vez de razonar a ciegas sobre el CSS.
+20. Ningún efecto visual depende de `backdrop-filter` ni de otras características de dudoso soporte transversal; la traslucidez se consigue con transparencia simple (alfa), que funciona en cualquier motor.
+
 ## Arquitectura de datos
 
 16. Fuente única de verdad: un master ledger cronológico, una fila por movimiento, agnóstico del activo o la entidad. Ninguna vista (por activo, por mes, fiscal...) es un fichero paralelo; todas son consultas sobre el mismo ledger.

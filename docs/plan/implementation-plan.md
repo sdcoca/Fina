@@ -123,9 +123,15 @@ Notes: `real_net_worth` is cash-only until D1; the `completeness` flag is mandat
 ### WP-9 — `render/section1_chart.py` + `pipeline.py` + CLI
 Depends on: WP-8.
 Implements: R-10.1..R-10.5, R-11.1..R-11.5.
-Tests: T-500..T-508, T-700..T-705.
+Tests: T-500..T-508, T-700..T-709.
 Notes: the chart's visual contract (R-10.2) is fixed by the approved mock; port it, do not
-redesign it. The renderer performs no arithmetic on money (R-10.4).
+redesign it. The renderer performs no arithmetic on money (R-10.4). **Verify at a 390px
+viewport first, desktop second** (R-10.2a, CLAUDE.md rule 19) — render a screenshot with a
+real headless browser and look at it; do not infer how it looks from the CSS. Do not reach
+for `backdrop-filter` for any translucency effect (R-10.2b, CLAUDE.md rule 20) — plain alpha
+only. This was a real defect in the approved mock (fixed before WP-9 started): a
+fixed-width tooltip and `backdrop-filter` blur both looked fine on desktop and were unusable
+on an actual phone.
 
 ---
 

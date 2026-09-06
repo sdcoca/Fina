@@ -309,6 +309,10 @@ contain); code, comments, test names and docs are English.
 | T-703 | Tooltip markup is only produced on the click path (no hover handler emitted) | R-10.2 |
 | T-704 | `cash_only` qualifier rendered whenever completeness is `cash_only` | R-10.5, R-9.4 |
 | T-705 | PDF export smoke test: file produced, non-zero size, one page | R-10.1 |
+| T-706 | Rendered at a 390px viewport, tooltip text does not wrap onto an extra line (parametrized over every month, since label/value lengths vary) | R-10.2, R-10.2a |
+| T-707 | Rendered at 390px, a pixel sample inside the open tooltip differs measurably from the tooltip's own flat background colour when a coloured series/band is directly behind it (proves visible translucency, not just a non-1.0 alpha value in the CSS) | R-10.2, R-10.2b |
+| T-708 | Visual checks in T-700..T-707 run at 390px width first; a desktop-width (≥ 900px) pass is a separate, additional case, never a substitute | R-10.2a |
+| T-709 | No rule in this spec's rendering section is satisfied by a component that uses `backdrop-filter` — AST/CSS scan of the render module's stylesheet | R-10.2b |
 
 ### 8.4 Meta-tests (the gates themselves)
 
@@ -436,7 +440,9 @@ packages land; a work package is not done until its rules appear here.
 | R-9.11 | T-415 |
 | R-9.12 | (deferred D2) |
 | R-10.1 | T-705 |
-| R-10.2 | T-702, T-703 |
+| R-10.2 | T-702, T-703, T-706, T-707 |
+| R-10.2a | T-706, T-708 |
+| R-10.2b | T-707, T-709 |
 | R-10.3 | T-701 |
 | R-10.4 | T-700 |
 | R-10.5 | T-704 |
