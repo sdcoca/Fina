@@ -259,6 +259,7 @@ def _match_concept(concepto: str, *, source_file: str, source_row: int) -> _Conc
 @dataclass(frozen=True)
 class _ParsedRow:
     source_row: int
+    file_sequence: int
     raw: dict[str, str]
     date: _date
     value_date: _date
@@ -368,6 +369,7 @@ def parse(file_path: Path) -> AdapterResult:
         parsed_rows.append(
             _ParsedRow(
                 source_row=row_idx,
+                file_sequence=-row_idx,  # R-7.5a: this export lists rows newest-first.
                 raw=raw,
                 date=fecha,
                 value_date=valor,
@@ -379,9 +381,12 @@ def parse(file_path: Path) -> AdapterResult:
         )
         row_idx += 1
 
-    # R-7.15: the source is newest-first; sort by (date, source_row) before this adapter's
-    # own output is used for anything balance-related (R-1.22, within this one file).
-    parsed_rows.sort(key=lambda r: (r.date, r.source_row))
+    # R-7.15/R-1.22: sort by (date, file_sequence) before this adapter's own output is used
+    # for anything balance-related. file_sequence (not source_row) is the required tiebreak:
+    # a raw ascending source_row would put the newest of two same-date rows first, which is
+    # the wrong physical/chronological order for this newest-first export (see R-1.22's
+    # rationale and docs/technical-decisions.md §4 for the real same-date tie this fixes).
+    parsed_rows.sort(key=lambda r: (r.date, r.file_sequence))
 
     # R-7.13: the bank export provides no counterparty IBAN or transaction_id, so R-2.14's
     # duplicate-transaction_id check is inapplicable here (unlike the broker CSV adapter).
@@ -444,5 +449,6 @@ def _build_entry(row: _ParsedRow, source_file: str) -> LedgerEntry:
         status="actual",
         source_file=source_file,
         source_row=row.source_row,
+        file_sequence=row.file_sequence,
         raw=row.raw,
     )

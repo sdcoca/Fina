@@ -151,3 +151,18 @@ equivalent mutants, closed by strengthening/adding tests rather than written off
 Excluding the same 20 already-documented equivalents from WP-1 through WP-5 (unchanged; the
 recurring timeout is treated as caught, per the WP-3 section above), the real kill rate across
 every module built through WP-6 is 1542/1542 = 100%.
+
+## `file_sequence` patch (WP-2/WP-4/WP-5, before WP-7 — Q-F resolution)
+
+R-1.22 changed from `(date, source_file, source_row)` to `(date, file_sequence, source_file)`;
+`LedgerEntry` gained `file_sequence: int` (WP-2, no new mutants -- a bare field declaration),
+`broker_csv.py` sets it to `source_row` (R-6.1a, T-360), `bank_xlsx.py` sets it to
+`-source_row` and re-sorts by `(date, file_sequence)` instead of `(date, source_row)` (R-7.5a,
+T-358/T-359/T-361). Full run after the patch: 1570 mutants generated (+7 over WP-6: `models.py`
+unchanged at 46; `broker_csv.py` 583→585; `bank_xlsx.py` 626→631), 1550 killed, the same 20
+survivors as every prior section (verified identical by exact mutant ID, not just count) — no
+new survivor was introduced by any of the three patches, and no mutant on any of the three new
+`file_sequence`-assignment lines or the changed sort-key line survived. `broker_csv.py`:
+585 mutants, 5 survived (the same 5 already documented above) = 99.15%. `bank_xlsx.py`: 631
+mutants, 8 survived (the same 8 already documented above) = 98.7%. Excluding the 20
+already-documented equivalents, the real kill rate is 1550/1550 = 100%.

@@ -1,11 +1,10 @@
-"""Tests for fina.adapters.bank_xlsx (WP-5): R-7.1..R-7.16.
+"""Tests for fina.adapters.bank_xlsx (WP-5): R-7.1..R-7.16, R-7.5a.
 
-Note (see docs/plan/open-questions.md Q-F): this adapter sorts entries by (date, source_row)
-per the literal text of R-1.22/R-7.15. For the canonical fixture's one same-date pair (rows 9
-and 10), that literal key does not reproduce a reconciling balance chain -- an open question,
-not a defect in this adapter, which implements exactly what R-7.15 directs. Tests here that
-need a definite, unambiguous multi-row order therefore use synthetic rows with distinct dates,
-not that specific tied pair.
+Note (see docs/plan/open-questions.md Q-F, RESOLVED): this adapter sorts entries by
+(date, file_sequence), where file_sequence = -source_row (R-7.5a), per R-1.22/R-7.15. This
+correctly reproduces a reconciling balance chain on the canonical fixture's same-date pair
+(rows 9/10, T-358) and on a same-date-*and*-same-value_date triple tie (T-359) that a
+value_date tiebreak alone cannot resolve -- see docs/technical-decisions.md §4.
 """
 
 from __future__ import annotations
@@ -547,6 +546,111 @@ def test_t220_newest_first_source_order_is_resorted(tmp_path: Path) -> None:
     assert dates == sorted(dates)
     assert dates[0] == datetime_module.date(2027, 3, 1)
     assert dates[-1] == datetime_module.date(2027, 3, 3)
+
+
+def _reconciliation_discrepancies(
+    ordered: list[bank_xlsx.LedgerEntry],
+) -> list[tuple[int, Decimal, Decimal]]:
+    """Replicates R-8.2's formula directly (reconciliation.py does not exist yet at this
+    patch stage): for each consecutive pair, `previous.declared_balance + current.
+    cash_effect_eur` must equal `current.declared_balance`. Returns
+    `(source_row, expected, declared)` for every row that disagrees.
+    """
+    problems: list[tuple[int, Decimal, Decimal]] = []
+    previous = None
+    for entry in ordered:
+        if previous is not None and previous.declared_balance is not None:
+            expected = previous.declared_balance + entry.cash_effect_eur
+            if entry.declared_balance is not None and expected != entry.declared_balance:
+                problems.append((entry.source_row, expected, entry.declared_balance))
+        previous = entry
+    return problems
+
+
+def test_t358_file_sequence_tiebreak_reconciles_raw_source_row_tiebreak_does_not() -> None:
+    """§12.1 (revised): rows 9 and 10 share `Fecha operación` (07/03/2027). Sorting the tie by
+    ascending `file_sequence` (row 10 before row 9, since file_sequence = -source_row puts
+    -10 before -9) is what this adapter's own output already does, and it reconciles exactly.
+    Sorting the same tie by raw ascending `source_row` instead (the pre-fix R-1.22 wording)
+    does not -- off by exactly 64.20 at that one step, per the spec's own hand-verified
+    numbers, which is itself the required regression test.
+    """
+    result = bank_xlsx.parse(BANK_XLSX)
+    entries = result.entries  # already sorted by (date, file_sequence) -- R-7.15/R-1.22
+    assert _reconciliation_discrepancies(entries) == []
+
+    by_date_then_raw_source_row = sorted(entries, key=lambda e: (e.date, e.source_row))
+    problems = _reconciliation_discrepancies(by_date_then_raw_source_row)
+    # Swapping the tied pair breaks the chain at row 9 (checked right after row 11 in this
+    # wrong order) by exactly 64.20 -- the spec's own hand-verified figure -- and that error
+    # then cascades into row 10's check too, since it now follows row 9's (wrong) position.
+    assert [row for row, _expected, _declared in problems] == [9, 10]
+    row, expected, declared = problems[0]
+    assert row == 9
+    assert expected - declared == Decimal("64.20")
+
+
+def test_t359_three_row_same_date_and_same_value_date_tie_resolves_by_file_sequence(
+    tmp_path: Path,
+) -> None:
+    """R-1.22's rationale / docs/technical-decisions.md §4: a real production export had
+    three rows sharing **both** `Fecha operación` and `Fecha valor` on one day, which a
+    `value_date` tiebreak cannot resolve. Built here as a `tests/builders.py` mutation of the
+    canonical fixture (TD-3), not a new canonical fixture file. Hand-verified numbers per the
+    spec's own rationale: baseline 1184.31, then -0.73 -> 1183.58, then -17.04 -> 1166.54,
+    then -34.70 -> 1131.84 -- the exact reverse of the rows' physical (newest-first) position.
+    """
+
+    def mutate(ws: Worksheet) -> None:
+        ws.delete_rows(9, amount=7)  # drop all 7 canonical data rows
+        # Physically newest-first: row 9 (closest to the header) is the most recent of the
+        # tied trio; row 12 is the untied baseline, chronologically before all three.
+        rows = [
+            (9, "05/09/2027", "05/09/2027", "RECIBO EJEMPLO A", "-34,70€", "1.131,84€"),
+            (10, "05/09/2027", "05/09/2027", "RECIBO EJEMPLO B", "-17,04€", "1.166,54€"),
+            (11, "05/09/2027", "05/09/2027", "RECIBO EJEMPLO C", "-0,73€", "1.183,58€"),
+            (12, "01/09/2027", "01/09/2027", "NOMINA EJEMPLO", "500,00€", "1.184,31€"),
+        ]
+        for row, fecha_op, fecha_valor, concepto, importe, saldo in rows:
+            ws[f"A{row}"] = fecha_op
+            ws[f"B{row}"] = fecha_valor
+            ws[f"C{row}"] = concepto
+            ws[f"D{row}"] = importe
+            ws[f"E{row}"] = saldo
+            ws[f"F{row}"] = "EUR"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="triple_tie.xlsx")
+    result = bank_xlsx.parse(path)
+    assert len(result.entries) == 4
+
+    # Ascending file_sequence order: baseline (row 12), then C, B, A (rows 11, 10, 9) -- the
+    # exact reverse of physical/source_row order for the tied trio.
+    assert [e.source_row for e in result.entries] == [12, 11, 10, 9]
+    assert [e.declared_balance for e in result.entries] == [
+        Decimal("1184.31"),
+        Decimal("1183.58"),
+        Decimal("1166.54"),
+        Decimal("1131.84"),
+    ]
+    assert _reconciliation_discrepancies(result.entries) == []
+
+    # The superseded proposal from Q-F's original analysis -- breaking a same-date tie with
+    # value_date -- ties too on this trio (they share both fields) and falls through to
+    # source_row, reproducing the file's own (wrong) physical order. Confirms file_sequence
+    # is doing real work here, not redundant with date/value_date alone.
+    by_date_value_date_source_row = sorted(
+        result.entries, key=lambda e: (e.date, e.value_date, e.source_row)
+    )
+    assert [e.source_row for e in by_date_value_date_source_row] == [12, 9, 10, 11]
+    assert _reconciliation_discrepancies(by_date_value_date_source_row) != []
+
+
+def test_t361_file_sequence_equals_negated_source_row_for_every_entry() -> None:
+    """R-7.5a: this export lists rows newest-first, so file_sequence = -source_row."""
+    result = bank_xlsx.parse(BANK_XLSX)
+    assert len(result.entries) > 0
+    for entry in result.entries:
+        assert entry.file_sequence == -entry.source_row
 
 
 # ---------------------------------------------------------------------------
