@@ -619,8 +619,42 @@ itself — cheap, and catches a truncated export.)*
 
 Let `M` be the set of all entries in a run.
 
-**R-9.1** `cash_balance(institution, account, t) = Σ { e.cash_effect_eur : e ∈ M,
-e.institution/account match, e.date ≤ t }`.
+**R-9.1** `cash_balance(institution, account, t)` MUST be computed relative to the latest
+verified reconciliation anchor at or before `t`, not by summing `cash_effect_eur` from an
+assumed zero balance:
+```
+anchor = the entry with the latest R-1.22 sort key among all entries for
+         (institution, account) that carry a non-None declared_balance and whose
+         sort key is ≤ t's, if any such entry exists
+if anchor exists:
+    cash_balance(t) = anchor.declared_balance
+                     + Σ { e.cash_effect_eur : same (institution, account),
+                           sort_key(e) > sort_key(anchor), e.date ≤ t }
+else (no declared_balance exists for this account at all — R-8.4's case):
+    cash_balance(t) = Σ { e.cash_effect_eur : same (institution, account), e.date ≤ t }
+    — unverified, per R-8.4's warning, and additionally may omit an unrecorded opening
+    balance that predates the ledger's earliest entry for this account (see rationale).
+```
+`reconciliation.py` (§8) MUST expose the anchor lookup as a function `section1.py` calls,
+rather than `section1.py` re-deriving it independently — one formula, not two implementations
+of the same fact (R-10.4's rationale applies equally here).
+
+*(rationale — found during first end-to-end run, independently of any unit test: the bank
+fixture's earliest entry (`TRANSFERENCIA`, R-8.3) has `declared_balance = 7500.00` **after**
+a `+6500.00` effect, meaning the account's true balance immediately before that entry was
+`1000.00` — a real amount that predates the ledger's first recorded row and that no entry's
+`cash_effect_eur` will ever sum to. Summing `cash_effect_eur` from zero across the bank
+fixture's 7 entries gives `5183.75`, not the true `6183.75` — silently short by exactly that
+unrecorded `1000.00` opening balance. This is not a fixture artifact: it is the general case
+for any account whose ingested history does not begin at the account's literal opening, which
+will be the common case in practice (a user hands over whatever statements they have, not
+always the first one ever issued). No test in the original T-400/T-401 catalogue caught this
+because both tests exercise the broker fixture only, whose first entry happens to be its
+account-opening deposit — a coincidence of that one fixture, not a property the formula
+could rely on. `reconciliation.py`'s own R-8.3 baseline is exactly the correct anchor; R-9.1
+previously ignored it and re-derived a balance independently, which is how the bug survived
+100% coverage and a high mutation-kill rate on both modules individually — neither module's
+own tests, run in isolation, could see that the two disagreed once combined.)*
 
 **R-9.2** `quantity_held(institution, account, asset, t) = Σ { e.quantity : matching, e.date
 ≤ t, e.movement_type is not TECHNICAL_ADJUSTMENT, e.quantity is not None }`.

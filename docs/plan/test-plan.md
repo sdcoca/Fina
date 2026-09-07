@@ -257,6 +257,9 @@ contain); code, comments, test names and docs are English.
 |---|---|---|
 | T-400 | `cash_balance` per `(institution, account)` matches the §12.2 running column, row by row | R-9.1, §12.2 |
 | T-401 | Final broker cash = `21937.82` | §12.2 |
+| T-401a | Final bank cash = `6183.75` (the *anchored* figure, not the `5183.75` raw sum of `cash_effect_eur` — regression test for the real bug found in first end-to-end run, where `cash_balance` ignored `reconciliation.py`'s R-8.3 baseline and silently omitted the bank fixture's unrecorded 1000.00 pre-ledger opening balance) | R-9.1, §12.1 |
+| T-401b | Combined run over both fixtures together: total cash-only `real_net_worth` as of the latest date across both = `21937.82 + 6183.75 = 28121.57`, not `27121.57` (the anchor-blind raw-summed figure this bug produced) | R-9.1, R-9.3 |
+| T-401c | An account with no `declared_balance` at all (broker) still falls back to raw summation from zero, unchanged, still carrying R-8.4's unverified warning | R-9.1, R-8.4 |
 | T-402 | `quantity_held` excludes `TECHNICAL_ADJUSTMENT` rows | R-9.2, R-2.5 |
 | T-403 | Holdings match §12.2 exactly (IBM 10, MSFT 10.15, BTC 0.022, bond 50, fund 30) | §12.2 |
 | T-404 | `savings_flow` contribution parametrized over all 13 movement types | R-9.5, R-2.3 |
@@ -433,7 +436,7 @@ packages land; a work package is not done until its rules appear here.
 | R-8.3 | T-353 |
 | R-8.4 | T-354, T-355 |
 | R-8.5 | T-356 |
-| R-9.1 | T-400, T-602 |
+| R-9.1 | T-400, T-401a, T-401b, T-401c, T-602 |
 | R-9.2 | T-402 |
 | R-9.3 | T-414 (cash term only while D1 stands) |
 | R-9.4 | T-414, T-704 |

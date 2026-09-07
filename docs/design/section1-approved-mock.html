@@ -1,0 +1,487 @@
+<title>Puente Patrimonial</title>
+<style>
+  :root{
+    --page:#f6f5f1;
+    --surface:#fcfcfb;
+    --ink:#14140f;
+    --ink-2:#55534a;
+    --muted:#8b897f;
+    --grid:#e3e1d7;
+    --border:rgba(11,11,11,0.10);
+    --line-real:#2a78d6;
+    --line-ahorro:#8b897f;
+    --gain-fill:rgba(42,120,214,0.14);
+    --gain-line:#2a78d6;
+    --loss-fill:rgba(227,73,72,0.16);
+    --loss-line:#e34948;
+    --badge-bg:#fcfcfb;
+    --tooltip-bg:rgba(150,148,140,0.24);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --page:#0d0d0d;
+      --surface:#1a1a19;
+      --ink:#ffffff;
+      --ink-2:#c3c2b7;
+      --muted:#898781;
+      --grid:#2c2c2a;
+      --border:rgba(255,255,255,0.12);
+      --line-real:#3987e5;
+      --line-ahorro:#898781;
+      --gain-fill:rgba(57,135,229,0.18);
+      --gain-line:#3987e5;
+      --loss-fill:rgba(230,103,103,0.20);
+      --loss-line:#e66767;
+      --badge-bg:#1a1a19;
+      --tooltip-bg:rgba(95,93,86,0.34);
+    }
+  }
+  :root[data-theme="dark"]{
+    --page:#0d0d0d;
+    --surface:#1a1a19;
+    --ink:#ffffff;
+    --ink-2:#c3c2b7;
+    --muted:#898781;
+    --grid:#2c2c2a;
+    --border:rgba(255,255,255,0.12);
+    --line-real:#3987e5;
+    --line-ahorro:#898781;
+    --gain-fill:rgba(57,135,229,0.18);
+    --gain-line:#3987e5;
+    --loss-fill:rgba(230,103,103,0.20);
+    --loss-line:#e66767;
+    --badge-bg:#1a1a19;
+    --tooltip-bg:rgba(95,93,86,0.34);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--page);
+    color:var(--ink);
+    font-family:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding:32px 20px 48px;
+  }
+  .wrap{
+    max-width:980px;
+    margin:0 auto;
+  }
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:28px 32px 24px;
+  }
+  .head-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+    flex-wrap:wrap;
+    margin-bottom:4px;
+  }
+  .eyebrow{
+    font-family:"IBM Plex Mono", monospace;
+    font-size:11.5px;
+    letter-spacing:0.09em;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin-bottom:6px;
+  }
+  h1{
+    font-family:"IBM Plex Serif", Georgia, serif;
+    font-weight:600;
+    font-size:26px;
+    line-height:1.2;
+    margin:0 0 4px;
+    text-wrap:balance;
+  }
+  .sub{
+    color:var(--ink-2);
+    font-size:14.5px;
+    margin:0;
+  }
+  .sub b{
+    font-family:"IBM Plex Mono", monospace;
+    font-variant-numeric:tabular-nums;
+    color:var(--ink);
+    font-weight:600;
+  }
+  .chart-area{
+    position:relative;
+    margin-top:18px;
+  }
+  svg{
+    width:100%;
+    height:auto;
+    display:block;
+    overflow:visible;
+  }
+  .axis-label{
+    font-family:"IBM Plex Mono", monospace;
+    font-size:11px;
+    fill:var(--muted);
+  }
+  .grid-line{
+    stroke:var(--grid);
+    stroke-width:1;
+  }
+  .baseline{
+    stroke:var(--muted);
+    stroke-width:1;
+  }
+  .line-real{
+    fill:none;
+    stroke:var(--line-real);
+    stroke-width:2.25;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+  }
+  .line-ahorro{
+    fill:none;
+    stroke:var(--line-ahorro);
+    stroke-width:1.75;
+    stroke-dasharray:5 4;
+    stroke-linecap:round;
+  }
+  .band-gain{ fill:var(--gain-fill); }
+  .band-loss{ fill:var(--loss-fill); }
+
+  .crosshair{
+    stroke:var(--ink-2);
+    stroke-width:1;
+    stroke-dasharray:2 3;
+    opacity:0;
+  }
+  .dot{
+    r:4;
+    stroke:var(--surface);
+    stroke-width:1.5;
+    opacity:0;
+  }
+  .dot-real{ fill:var(--line-real); }
+  .dot-ahorro{ fill:var(--line-ahorro); }
+
+  .hit-area{ fill:transparent; cursor:pointer; }
+
+  .end-label{
+    font-family:"IBM Plex Mono", monospace;
+    font-size:12px;
+    font-variant-numeric:tabular-nums;
+  }
+  .end-label.real{ fill:var(--line-real); font-weight:600; }
+  .end-label.ahorro{ fill:var(--ink-2); }
+
+  .legend{
+    display:flex;
+    gap:22px;
+    flex-wrap:wrap;
+    margin-top:14px;
+    font-size:13px;
+    color:var(--ink-2);
+  }
+  .legend-item{
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .swatch{
+    width:18px; height:0; border-top-width:2.5px; border-top-style:solid;
+  }
+  .swatch.dashed{ border-top-style:dashed; }
+  .chip{
+    width:11px; height:11px; border-radius:2px;
+  }
+
+  .tooltip{
+    position:absolute;
+    pointer-events:none;
+    background:var(--tooltip-bg);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:7px 24px 7px 9px;
+    font-size:11.5px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.06);
+    opacity:0;
+    transition:opacity 0.08s ease;
+    max-width:172px;
+    z-index:5;
+  }
+  .tooltip.visible{ pointer-events:auto; }
+  .tooltip-close{
+    position:absolute;
+    top:6px; right:6px;
+    width:20px; height:20px;
+    border:none;
+    background:transparent;
+    color:var(--muted);
+    font-family:"IBM Plex Sans", sans-serif;
+    font-size:15px;
+    line-height:1;
+    cursor:pointer;
+    border-radius:4px;
+  }
+  .tooltip-close:hover{ color:var(--ink); }
+  .tooltip .t-month{
+    font-family:"IBM Plex Mono", monospace;
+    font-size:11px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  .tooltip .t-row{
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    font-family:"IBM Plex Mono", monospace;
+    font-variant-numeric:tabular-nums;
+    padding:1.5px 0;
+    white-space:nowrap;
+  }
+  .tooltip .t-row .lab{
+    font-family:"IBM Plex Sans", sans-serif;
+    color:var(--ink-2);
+  }
+  .tooltip .t-gap{
+    margin-top:5px;
+    padding-top:5px;
+    border-top:1px solid var(--border);
+    font-weight:600;
+  }
+
+</style>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<div class="wrap">
+  <div class="card">
+    <div class="head-row">
+      <div>
+        <div class="eyebrow">Sección 1 · Informe mensual de patrimonio</div>
+        <h1>Patrimonio real vs. solo ahorro</h1>
+        <p class="sub">Hueco acumulado a cierre: <b id="gap-headline">—</b></p>
+      </div>
+    </div>
+
+    <div class="chart-area">
+      <svg id="chart" viewBox="0 0 960 420" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="border-color:var(--line-real)"></span>Patrimonio neto real</div>
+      <div class="legend-item"><span class="swatch dashed" style="border-color:var(--line-ahorro)"></span>Solo ahorro, sin invertir</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Datos de ejemplo — cuando el ledger real exista, esta tabla la produce
+  // la vista "puente patrimonial" (mes, patrimonio_real_eur, solo_ahorro_eur).
+  var data = [
+    {m:"ene25", real:180000, ahorro:180000},
+    {m:"feb25", real:183500, ahorro:182500},
+    {m:"mar25", real:187000, ahorro:185000},
+    {m:"abr25", real:185000, ahorro:187500},
+    {m:"may25", real:191000, ahorro:190000},
+    {m:"jun25", real:196000, ahorro:192500},
+    {m:"jul25", real:199500, ahorro:195000},
+    {m:"ago25", real:194000, ahorro:197500},
+    {m:"sep25", real:198000, ahorro:200000},
+    {m:"oct25", real:205000, ahorro:202500},
+    {m:"nov25", real:210000, ahorro:205000},
+    {m:"dic25", real:207000, ahorro:207500},
+    {m:"ene26", real:215000, ahorro:210000}
+  ];
+
+  var W=960, H=420, ML=64, MR=92, MT=20, MB=36;
+  var innerW = W-ML-MR, innerH = H-MT-MB;
+
+  var vals = [];
+  data.forEach(function(d){ vals.push(d.real); vals.push(d.ahorro); });
+  var yMin = Math.min.apply(null, vals);
+  var yMax = Math.max.apply(null, vals);
+  var pad = (yMax-yMin)*0.12;
+  yMin -= pad; yMax += pad;
+
+  function x(i){ return ML + i*(innerW/(data.length-1)); }
+  function y(v){ return MT + innerH - (v-yMin)/(yMax-yMin)*innerH; }
+
+  var svgNS = "http://www.w3.org/2000/svg";
+  var svg = document.getElementById("chart");
+
+  function el(tag, attrs){
+    var e = document.createElementNS(svgNS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // gridlines + y labels
+  var ticks = 5;
+  for (var t=0; t<=ticks; t++){
+    var v = yMin + (yMax-yMin)*t/ticks;
+    var yy = y(v);
+    svg.appendChild(el("line", {x1:ML, x2:W-MR, y1:yy, y2:yy, class:"grid-line"}));
+    var label = el("text", {x:ML-10, y:yy+4, "text-anchor":"end", class:"axis-label"});
+    label.textContent = Math.round(v/1000)+"k";
+    svg.appendChild(label);
+  }
+  svg.appendChild(el("line", {x1:ML, x2:W-MR, y1:MT+innerH, y2:MT+innerH, class:"baseline"}));
+
+  // x labels (every other month to avoid crowding)
+  data.forEach(function(d,i){
+    if (i % 2 !== 0 && i !== data.length-1) return;
+    var lab = el("text", {x:x(i), y:H-MB+18, "text-anchor":"middle", class:"axis-label"});
+    lab.textContent = d.m;
+    svg.appendChild(lab);
+  });
+
+  // ---- gap bands split at zero-crossings ----
+  var pts = data.map(function(d,i){
+    return {x:x(i), ry:y(d.real), ay:y(d.ahorro), gap:d.real-d.ahorro};
+  });
+
+  var bands = [];
+  var current = null;
+  function sign(g){ return g>=0 ? 1 : -1; }
+
+  for (var i=0;i<pts.length;i++){
+    var p = pts[i];
+    var s = sign(p.gap);
+    if (!current || current.sign !== s){
+      if (current) bands.push(current);
+      current = {sign:s, pts:[]};
+      if (i>0){
+        var prev = pts[i-1];
+        if (sign(prev.gap) !== s){
+          var f = prev.gap/(prev.gap-p.gap);
+          var ix = prev.x + (p.x-prev.x)*f;
+          var iy = prev.ry + (p.ry-prev.ry)*f; // real==ahorro at crossing
+          current.pts.push({x:ix, ry:iy, ay:iy});
+        }
+      }
+    }
+    current.pts.push(p);
+    if (i<pts.length-1){
+      var nxt = pts[i+1];
+      if (sign(nxt.gap) !== s){
+        var f2 = p.gap/(p.gap-nxt.gap);
+        var ix2 = p.x + (nxt.x-p.x)*f2;
+        var iy2 = p.ry + (nxt.ry-p.ry)*f2;
+        current.pts.push({x:ix2, ry:iy2, ay:iy2});
+      }
+    }
+  }
+  if (current) bands.push(current);
+
+  bands.forEach(function(b){
+    var top = b.pts.map(function(p){ return p.x+","+p.ry; }).join(" L ");
+    var bot = b.pts.slice().reverse().map(function(p){ return p.x+","+p.ay; }).join(" L ");
+    var d = "M "+top+" L "+bot+" Z";
+    svg.appendChild(el("path", {d:d, class: b.sign>0 ? "band-gain" : "band-loss"}));
+  });
+
+  // ---- lines ----
+  function pathFor(key){
+    return "M "+pts.map(function(p,i){ return x(i)+","+ (key==="real"?p.ry:p.ay); }).join(" L ");
+  }
+  svg.appendChild(el("path", {d:pathFor("ahorro"), class:"line-ahorro"}));
+  svg.appendChild(el("path", {d:pathFor("real"), class:"line-real"}));
+
+  // ---- etiquetas directas en el último punto (sin necesidad de interacción) ----
+  var fmtK = new Intl.NumberFormat("es-ES", {maximumFractionDigits:0});
+  var lastPt = pts[pts.length-1];
+  var lastReal = el("text", {x:lastPt.x+8, y:lastPt.ry+4, class:"end-label real"});
+  lastReal.textContent = fmtK.format(data[data.length-1].real)+" €";
+  svg.appendChild(lastReal);
+  var lastAhorro = el("text", {x:lastPt.x+8, y:lastPt.ay+4, class:"end-label ahorro"});
+  lastAhorro.textContent = fmtK.format(data[data.length-1].ahorro)+" €";
+  svg.appendChild(lastAhorro);
+
+  // ---- crosshair + dots (solo al seleccionar un punto) ----
+  var crosshair = el("line", {class:"crosshair", y1:MT, y2:MT+innerH});
+  svg.appendChild(crosshair);
+  var dotReal = el("circle", {class:"dot dot-real"});
+  var dotAhorro = el("circle", {class:"dot dot-ahorro"});
+  svg.appendChild(dotAhorro);
+  svg.appendChild(dotReal);
+
+  var hit = el("rect", {x:ML, y:MT, width:innerW, height:innerH, class:"hit-area"});
+  svg.appendChild(hit);
+
+  var tooltip = document.getElementById("tooltip");
+  var chartArea = document.querySelector(".chart-area");
+  var fmt = new Intl.NumberFormat("es-ES", {maximumFractionDigits:0});
+
+  function showFor(i){
+    var d = data[i], p = pts[i];
+    crosshair.setAttribute("x1", p.x); crosshair.setAttribute("x2", p.x);
+    crosshair.style.opacity = 1;
+    dotReal.setAttribute("cx", p.x); dotReal.setAttribute("cy", p.ry); dotReal.style.opacity = 1;
+    dotAhorro.setAttribute("cx", p.x); dotAhorro.setAttribute("cy", p.ay); dotAhorro.style.opacity = 1;
+
+    var gap = d.real-d.ahorro;
+    var gapSign = gap>=0 ? "+" : "−";
+    tooltip.innerHTML =
+      '<button type="button" class="tooltip-close" aria-label="Cerrar">×</button>' +
+      '<div class="t-month">'+d.m+'</div>' +
+      '<div class="t-row"><span class="lab">Patrimonio real</span><span>'+fmt.format(d.real)+' €</span></div>' +
+      '<div class="t-row"><span class="lab">Solo ahorro</span><span>'+fmt.format(d.ahorro)+' €</span></div>' +
+      '<div class="t-row t-gap"><span class="lab">Hueco</span><span style="color:'+(gap>=0?"var(--gain-line)":"var(--loss-line)")+'">'+gapSign+fmt.format(Math.abs(gap))+' €</span></div>';
+    tooltip.querySelector(".tooltip-close").addEventListener("click", function(evt){
+      evt.stopPropagation();
+      hideTooltip();
+    });
+
+    var frac = p.x / W;
+    var left = frac*chartArea.clientWidth;
+    var wTip = 172;
+    left = Math.min(Math.max(left-wTip/2, 0), chartArea.clientWidth-wTip);
+    tooltip.style.left = left+"px";
+    tooltip.style.top = "6px";
+    tooltip.style.opacity = 1;
+    tooltip.classList.add("visible");
+  }
+
+  function hideTooltip(){
+    crosshair.style.opacity = 0;
+    dotReal.style.opacity = 0;
+    dotAhorro.style.opacity = 0;
+    tooltip.style.opacity = 0;
+    tooltip.classList.remove("visible");
+    selected = null;
+  }
+
+  var selected = null;
+  function indexFromEvent(evt){
+    var rect = svg.getBoundingClientRect();
+    var scaleX = W/rect.width;
+    var mx = (evt.clientX-rect.left)*scaleX;
+    var i = Math.round((mx-ML)/(innerW/(data.length-1)));
+    return Math.max(0, Math.min(data.length-1, i));
+  }
+
+  // Selección por clic/tap — nada aparece hasta que el usuario elige un mes.
+  hit.addEventListener("click", function(evt){
+    evt.stopPropagation();
+    var i = indexFromEvent(evt);
+    if (selected === i){ hideTooltip(); return; }
+    selected = i;
+    showFor(i);
+  });
+
+  // Cualquier clic/tap fuera de la gráfica o del tooltip lo cierra.
+  document.addEventListener("click", function(evt){
+    if (selected === null) return;
+    if (tooltip.contains(evt.target)) return;
+    hideTooltip();
+  });
+
+  document.getElementById("gap-headline").textContent =
+    (function(){
+      var lastGap = data[data.length-1].real - data[data.length-1].ahorro;
+      return (lastGap>=0?"+":"−") + fmt.format(Math.abs(lastGap)) + " €";
+    })();
+})();
+</script>

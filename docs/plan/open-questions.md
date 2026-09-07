@@ -145,7 +145,19 @@ rule is wrong — exactly what R-0.3 forbids, on precisely the rule (R-8.2, zero
 reconciliation) implementation-plan.md §4.7 names as requiring the most adversarial scrutiny.
 I did not implement any reconciliation code while this stood open.
 
-## Q-G — No approved visual mock available for the WP-9 chart (found in WP-9) — flagged deviation, needs owner sign-off
+## Q-G — No approved visual mock available for the WP-9 chart (found in WP-9) — RESOLVED
+
+**Decision (project owner, confirmed)**: option (b). The approved mock was never lost — it
+existed outside this repository (an Artifact iterated on directly with the project owner,
+never committed) and is now saved at `docs/design/section1-approved-mock.html` for exactly
+this reason: so no future package ever finds it unreachable again. WP-9's chart must be
+re-derived as a genuine port of this file (colours, spacing, translucent-tooltip behaviour,
+mobile-first sizing — all already validated against real phone-width renders during design,
+per the defect this file's own history records) rather than kept as the independently-designed
+version. The independent version was reasonable engineering under the constraint that produced
+it, but the constraint no longer holds.
+
+**Original entry, for the record:**
 
 **Context**: R-10.2 fixes the chart's visual contract "validated against the approved mock,"
 and `implementation-plan.md`'s WP-9 entry is explicit: "the chart's visual contract (R-10.2)
@@ -198,3 +210,54 @@ interpretation (a) or (c) without the project owner's sign-off would be guessing
 rule is wrong — exactly what R-0.3 forbids, on precisely the rule (R-8.2, zero-tolerance
 reconciliation) implementation-plan.md §4.7 names as requiring the most adversarial scrutiny.
 I did not implement any reconciliation code while this stood open.
+
+## Q-H — `real_net_worth` silently omits any unrecorded pre-ledger opening balance (found in final review, first end-to-end run)
+
+**Context**: found by the reviewing session running `python -m fina build` over both fixtures
+together — the first time this had ever been executed; every prior gate (unit tests, 100%
+coverage, mutation testing on `section1.py` and `reconciliation.py` individually) was green
+and none of them caught it.
+
+**The bug, with real numbers**: the bank fixture's earliest entry (`TRANSFERENCIA`, per R-8.3
+the reconciliation baseline) has `declared_balance = 7500.00` immediately after a `+6500.00`
+effect — meaning the account genuinely held `1000.00` the instant before that entry, an
+amount that predates the ledger's first recorded row for that account and that no entry's
+`cash_effect_eur` will ever sum to. `section1.py`'s `cash_balance` (R-9.1, as originally
+written) summed `cash_effect_eur` from an assumed zero balance: `6500.00 − 120.50 − 430.00 −
+650.25 − 38.90 − 64.20 − 12.40 = 5183.75`, not the true `6183.75`. Running the full pipeline
+over both fixtures together produced `real_net_worth (cash_only) = 27121.57`; the true figure
+is `21937.82` (broker, correct — its ledger happens to start at account opening) `+ 6183.75`
+(bank, true balance) `= 28121.57`. **Silently short by exactly 1000.00**, on a "cash-only"
+figure whose entire purpose is to be trustworthy as far as it goes.
+
+**Why 100% coverage and high mutation scores didn't catch it**: `reconciliation.py` validates
+the bank fixture's chain correctly (it *has* the right baseline, `7500.00`, as R-8.3
+requires) but only raises on mismatch — it never exposed that baseline for reuse.
+`section1.py` re-derived a balance independently, using a different, unstated assumption (an
+implicit zero starting balance) that only the broker fixture happens to satisfy. Every test in
+the original T-400/T-401 catalogue exercised the broker fixture alone, where the assumption is
+true by coincidence, so nothing in either module's own test suite could see the two modules
+disagreed once combined. This is the exact failure mode implementation-plan.md §4 step 6
+(determinism/idempotency) and the general "run the whole pipeline, not just units" principle
+exist for — found this session specifically because that step was finally run for real.
+
+**Options**:
+(a) Fix `R-9.1` so `cash_balance` is computed relative to the latest reconciliation anchor
+    (`reconciliation.py`'s own R-8.3 baseline) plus effects after it, falling back to raw
+    summation (still flagged unverified, R-8.4) only when an account has no declared balance
+    at all. `reconciliation.py` exposes the anchor lookup; `section1.py` calls it — one
+    formula, not two independent derivations of the same fact.
+(b) Leave `section1.py` as an independent raw-summation and treat the discrepancy as an
+    inherent limitation to document. Rejected: it is not inherent — the correct anchor is
+    already computed by `reconciliation.py` and simply not being used; leaving it broken when
+    the fix is a straightforward reuse would be choosing convenience over the accuracy rule
+    (CLAUDE.md rule 9) this entire project exists to enforce.
+
+**Recommendation**: (a). Already written into the spec (R-9.1, revised) and the test plan
+(T-401a/b/c) by the reviewing session. Requires a patch to `WP-7` (`reconciliation.py` exposes
+the anchor) and `WP-8` (`section1.py` calls it instead of raw-summing), each re-verified in
+full before `WP-9`'s already-built chart is considered to still be operating on correct
+numbers — `WP-9` itself does not need code changes for this bug, only re-confirmation once
+`WP-8`'s output changes.
+
+**Status**: awaiting project-owner confirmation of option (a) before implementation resumes.
