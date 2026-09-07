@@ -63,7 +63,22 @@ clearly marked as such.
 verification runs. (c) is tempting and should be refused: cost basis is not value, and a
 plausible-looking wrong number is worse than a missing one.
 
-## Q-F — R-1.22's sort key contradicts the bank fixture's own reconciliation (found in WP-5)
+## Q-F — R-1.22's sort key contradicts the bank fixture's own reconciliation (found in WP-5) — RESOLVED
+
+**Decision (project owner, confirmed)**: option (a) as originally proposed was superseded
+before confirmation — a real production export (predating any fixture) contains a three-row
+tie on **both** `Fecha operación` and `Fecha valor`, which a `value_date` tiebreak cannot
+resolve. The adopted fix is a per-adapter `file_sequence` field instead (broker:
+`file_sequence = source_row`; bank: `file_sequence = -source_row`), with R-1.22 now sorting
+by `(date, file_sequence, source_file)`. Full rule text in
+`docs/spec/section1-ingestion-spec.md` R-1.22/R-6.1a/R-7.5a, rationale in
+`docs/technical-decisions.md` §4. This unblocks WP-7 — see implementation-plan.md's WP-7
+entry for the required patches to WP-2/WP-4/WP-5 that come with it.
+
+The original analysis is kept below for the record (it correctly identified the problem and
+ruled out options (b) and (c); it just proposed the wrong fix for option (a)).
+
+
 
 **Context**: `tests/fixtures/banco_ejemplo.xlsx`'s movements table is newest-first and
 contains two rows both dated `07/03/2027` (physical/`source_row` 9: "PAGO MOVIL…", Importe

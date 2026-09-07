@@ -149,9 +149,31 @@ data. Iteration over sets/dicts MUST NOT leak into output ordering.
 `(institution, account, source_file, source_row)`. It MUST NOT incorporate wall-clock time,
 randomness, or process state.
 
-**R-1.22** Entries MUST be sorted by `(date, source_file, source_row)` before any
-running-balance or period aggregation. *(rationale: same-day rows must have a total order
-that comes from the document, not from parse order or hash order.)*
+**R-1.22** Entries MUST be sorted by `(date, file_sequence, source_file)` ascending before
+any running-balance or period aggregation, where `file_sequence` is an integer every adapter
+MUST assign to each entry it produces such that ascending `file_sequence` corresponds to the
+**true chronological order of events within that source file** — regardless of the order the
+file itself lists rows in. Each adapter's own section states how it derives `file_sequence`
+(R-6.1a for the broker CSV, R-7.4a for the bank XLSX). `file_sequence` MUST NOT be assumed
+equal to `source_row`; `source_row` remains purely a human-traceability pointer (CLAUDE.md
+rule 10) and carries no ordering guarantee on its own.
+
+*(rationale — revised after a real same-day, same-value-date triple-tie surfaced during WP-5:
+a bank export contained three rows all dated 05/09 with identical `Fecha operación` **and**
+identical `Fecha valor`:*
+```
+row A: Fecha op 05/09, Fecha valor 05/09, Importe -34.70, Saldo 1131.84
+row B: Fecha op 05/09, Fecha valor 05/09, Importe -17.04, Saldo 1166.54
+row C: Fecha op 05/09, Fecha valor 05/09, Importe  -0.73, Saldo 1183.58
+```
+*hand-verified against the prior row's balance of 1184.31: applying C then B then A
+reproduces every declared balance exactly (1184.31−0.73=1183.58; 1183.58−17.04=1166.54;
+1166.54−34.70=1131.84) — i.e. the correct order is the exact **reverse of the rows'
+physical position** in this newest-first file, and no date field distinguishes them. An
+earlier version of this rule proposed breaking same-`date` ties with `value_date`; that
+does not generalize to this case, since `value_date` ties too. `file_sequence` does, because
+it is defined per adapter from the file's own known listing convention, not from any date
+field.)*
 
 ### 1.6 Error taxonomy
 
@@ -208,7 +230,8 @@ surfaced by the CLI before any report figure is printed (CLAUDE.md rule 15).
 | `is_external_flow` | `bool` \| `None` | yes | Per §3. `None` where the concept does not apply. |
 | `status` | `"actual"` \| `"estimated"` | no | CLAUDE.md rule 11. Both adapters emit only `"actual"`. |
 | `source_file` | `str` | no | File name. |
-| `source_row` | `int` | no | Per R-1.19. |
+| `source_row` | `int` | no | Per R-1.19. Traceability pointer only — carries no ordering guarantee (R-1.22). |
+| `file_sequence` | `int` | no | Per R-1.22: adapter-assigned, ascending = true chronological order within the source file. Not necessarily equal to `source_row` (see R-6.1a, R-7.5a). |
 | `raw` | `Mapping[str, str]` | no | The original row verbatim, before parsing. |
 
 **R-2.2** `raw` MUST be retained for every entry, even when every field has been parsed into
@@ -384,6 +407,11 @@ transaction_id, counterparty_name, counterparty_iban, payment_reference, mcc_cod
 `counterparty_name`→`counterparty_name`, `counterparty_iban`→`counterparty_iban`.
 `account_type`, `name`, `description`, `payment_reference`, `mcc_code` are `raw`-only.
 
+**R-6.1a** `file_sequence = source_row`. Every sample of this export lists rows in ascending
+chronological order (oldest first), so `source_row` already increases with time and needs no
+transformation. Where two rows share the same `datetime` to the millisecond (observed for
+split trades, R-6.8), their relative `source_row` order is preserved as-is.
+
 **R-6.2a** `shares` maps to `quantity` **only** when `category` is `TRADING` or `DELIVERY`.
 For `CASH`-category rows it MUST NOT populate `quantity`; it is retained in `raw` and, where
 useful, in the informational field `position_at_record_date`.
@@ -484,6 +512,12 @@ after that (footers, disclaimers) is ignored with a warning. Blank rows *inside*
 (a single blank row followed by more data rows) MUST also stop parsing and warn, rather than
 being skipped. *(rationale: a mid-table blank row means the file's shape is not what this
 adapter believes; continuing would risk misaligning columns.)*
+
+**R-7.5a** `file_sequence = −source_row`. This export lists rows newest-first (confirmed by
+every sample seen); negating `source_row` makes ascending `file_sequence` correspond to
+ascending chronological order, consistently with R-1.22, without requiring any date field to
+disambiguate same-day rows. See R-1.22's rationale for the real three-row same-date,
+same-value-date tie this resolves that a `value_date` tiebreak alone could not.
 
 ### 7.2 Cell value handling
 
@@ -708,20 +742,26 @@ cross-file IBAN match in §12.3 is an identity match, independent of dates.)*
 
 ### 12.1 `tests/fixtures/banco_ejemplo.xlsx`
 
-| Fecha operación | Importe | Saldo declared |
-|---|---|---|
-| 01/03/2027 | +6.500,00 | 7.500,00 |
-| 02/03/2027 | −120,50 | 7.379,50 |
-| 03/03/2027 | −430,00 | 6.949,50 |
-| 04/03/2027 | −650,25 | 6.299,25 |
-| 05/03/2027 | −38,90 | 6.260,35 |
-| 07/03/2027 | −64,20 | 6.196,15 |
-| 07/03/2027 | −12,40 | 6.183,75 |
+`source_row` below is the literal spreadsheet row (R-1.19; the metadata block occupies rows
+1-7, the movements header is row 8). `file_sequence = −source_row` (R-7.5a); the table is
+shown in ascending `file_sequence` order, i.e. the order reconciliation must process it in —
+the opposite of the file's own newest-first listing order.
+
+| source_row | file_sequence | Fecha operación | Fecha valor | Importe | Saldo declared |
+|---|---|---|---|---|---|
+| 15 | −15 | 01/03/2027 | 01/03/2027 | +6.500,00 | 7.500,00 |
+| 14 | −14 | 02/03/2027 | 02/03/2027 | −120,50 | 7.379,50 |
+| 13 | −13 | 03/03/2027 | 03/03/2027 | −430,00 | 6.949,50 |
+| 12 | −12 | 04/03/2027 | 03/03/2027 | −650,25 | 6.299,25 |
+| 11 | −11 | 05/03/2027 | 05/03/2027 | −38,90 | 6.260,35 |
+| 10 | −10 | 07/03/2027 | 05/03/2027 | −64,20 | 6.196,15 |
+| 9  | −9  | 07/03/2027 | 07/03/2027 | −12,40 | 6.183,75 |
 
 Expected: reconciliation passes with zero discrepancy on every row (R-8.2); the last
-declared balance `6183.75` equals the header balance (R-8.5); the two rows dated 07/03 are
-ordered by `source_row` (R-1.22) — reversing them breaks reconciliation, which is itself a
-required test.
+declared balance `6183.75` equals the header balance (R-8.5). Rows 9 and 10 share
+`Fecha operación`; sorting them by `file_sequence` (row 10 before row 9) is what makes
+reconciliation close — sorting by raw ascending `source_row` (row 9 before row 10) does not
+(off by 64.20 at that step), which is itself a required regression test (T-358).
 
 Expected `savings_flow` for 2027-03: `+6500.00 − 120.50 − 430.00 − 650.25 − 38.90 − 64.20 −
 12.40 = +5183.75` (every row is `EXPENSE` or an external `EXTERNAL_DEPOSIT`; `MORENO SANZ

@@ -246,6 +246,10 @@ contain); code, comments, test names and docs are English.
 | T-355 | Exactly one such warning per `(institution, account)`, not per row | R-8.4 |
 | T-356 | Final declared balance vs header balance mismatch raises | R-8.5 |
 | T-357 | Comparison uses exact `Decimal` equality (a 0.001 difference still fails) | R-8.2, R-1.5 |
+| T-358 | Bank fixture rows 9/10 (same `Fecha operación`, tied): sorting by `file_sequence` (R-7.5a) reconciles exactly; sorting by raw ascending `source_row` instead does not (regression test for the real contradiction that produced R-1.22's current wording) | R-1.22, R-7.5a, R-8.2, §12.1 |
+| T-359 | Three-row same-`date`-**and**-same-`value_date` tie (regression fixture modeled on the real production case in R-1.22's rationale): only `file_sequence` (not `value_date`) resolves the order; asserts the exact three declared balances in reverse-physical-row order | R-1.22, R-7.5a |
+| T-360 | Broker adapter: `file_sequence == source_row` for every entry (R-6.1a) | R-6.1a |
+| T-361 | Bank adapter: `file_sequence == -source_row` for every entry (R-7.5a) | R-7.5a |
 
 ### 7.3 Section 1 (§9)
 
@@ -355,7 +359,7 @@ packages land; a work package is not done until its rules appear here.
 | R-1.19 | T-128 |
 | R-1.20 | T-310, T-508, T-601, T-606, T-903 |
 | R-1.21 | T-060, T-061, T-062 |
-| R-1.22 | T-220, T-352, T-601 |
+| R-1.22 | T-220, T-352, T-358, T-359, T-601 |
 | R-1.23 | T-071, T-351 |
 | R-1.24 | T-504 |
 | R-2.1 | T-050 |
@@ -389,6 +393,7 @@ packages land; a work package is not done until its rules appear here.
 | R-5.3 | T-107, T-217, T-218 |
 | R-5.4 | T-137 |
 | R-6.1 | T-112, T-113 |
+| R-6.1a | T-360 |
 | R-6.2 | T-101, T-102, T-103, `test_full_field_propagation_on_a_plain_row` |
 | R-6.2a | T-067, T-104 |
 | R-6.3 | T-111 |
@@ -411,6 +416,7 @@ packages land; a work package is not done until its rules appear here.
 | R-7.3 | T-006, T-204 |
 | R-7.4 | T-205 |
 | R-7.5 | T-206, T-207 |
+| R-7.5a | T-358, T-359, T-361 |
 | R-7.6 | T-001..T-012, T-600 |
 | R-7.7 | T-208, T-209 |
 | R-7.8 | T-210 |
@@ -423,7 +429,7 @@ packages land; a work package is not done until its rules appear here.
 | R-7.15 | T-220 |
 | R-7.16 | T-221 |
 | R-8.1 | T-350 |
-| R-8.2 | T-350, T-351, T-352, T-357 |
+| R-8.2 | T-350, T-351, T-352, T-357, T-358 |
 | R-8.3 | T-353 |
 | R-8.4 | T-354, T-355 |
 | R-8.5 | T-356 |

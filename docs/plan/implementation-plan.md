@@ -111,7 +111,22 @@ risk described there; it is not cosmetic.
 ### WP-7 — `reconciliation.py`
 Depends on: WP-6.
 Implements: R-8.1..R-8.5.
-Tests: T-350..T-357.
+Tests: T-350..T-361 (T-358..T-361 added by the `file_sequence` fix below).
+
+**Required patches before WP-7 itself, found and resolved via Q-F (now closed — see
+`docs/plan/open-questions.md`)**: R-1.22 changed from a raw `(date, source_file, source_row)`
+sort to `(date, file_sequence, source_file)`, where `file_sequence` is a new adapter-assigned
+`LedgerEntry` field. This is a small, targeted patch to three already-completed packages, not
+a reopening of their scope:
+- **WP-2** (`models.py`): add `file_sequence: int` to `LedgerEntry` (spec §2.1's field table).
+- **WP-4** (`adapters/broker_csv.py`): set `file_sequence = source_row` per R-6.1a; add T-360.
+- **WP-5** (`adapters/bank_xlsx.py`): set `file_sequence = -source_row` per R-7.5a; add T-358,
+  T-359, T-361 (T-359 is a new regression fixture — a synthetic three-row same-`date`-and-
+  same-`value_date` tie, built as a `tests/builders.py` mutation of the canonical fixture per
+  TD-3, not a new canonical fixture file).
+Re-run each patched package's full self-verification protocol (§3) before proceeding to
+WP-7 itself — a field added to `models.py` can change coverage/mutation numbers anywhere it's
+constructed.
 
 ### WP-8 — `section1.py`: the net-worth bridge
 Depends on: WP-7.

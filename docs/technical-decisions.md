@@ -46,17 +46,62 @@ Researched because it directly affects cent-level reconciliation (rule 9 in `CLA
 
 **Decision**: the ledger's `date` = `Fecha operación` (the one that reconciles the balance to the cent). `Fecha valor` is stored as an additional field (`value_date`), useful to cross-check against the real merchant charge date or another related statement's settlement date.
 
-## 4. Own-accounts registry — derived from ingestion, not hand-maintained
+## 4. Same-date ordering: `file_sequence`, not `value_date`, not raw `source_row`
 
-### 4.1 Options considered
+Found during implementation (WP-5), when the reconciliation oracle for the bank fixture
+turned out to contradict the original wording of R-1.22.
+
+### 4.1 The options considered
+
+R-1.22 originally sorted entries by `(date, source_file, source_row)`. The bank fixture has
+two rows sharing `Fecha operación` where that tiebreak gives the wrong order (verified by
+hand: reconciliation is off by exactly the second row's amount, not a rounding artifact).
+
+1. Break same-`date` ties with `value_date`. Fixes the two-row case in the fixture.
+2. **Break ties with a per-adapter `file_sequence`** *(adopted)* — see 4.2.
+3. Edit the fixture so ascending `source_row` already matches. Rejected outright: only the
+   project owner may authorize a fixture edit, and doing it to make a check pass is exactly
+   the failure mode the project's rules exist to prevent.
+
+Option 1 was the first instinct and is *wrong*: a real production export (seen at the start
+of this project, before any fixture was built) contains three rows sharing **both**
+`Fecha operación` and `Fecha valor` on the same day. `value_date` cannot break that tie
+either. Hand-verifying the three declared balances against each other shows the correct
+order is the exact reverse of the rows' physical position in the file — i.e. the file's own
+newest-first listing convention *is* the ordering information, once un-reversed.
+
+### 4.2 The adopted rule
+
+Every adapter assigns each entry a `file_sequence: int` such that ascending `file_sequence`
+equals true chronological order within that file, regardless of the file's own listing
+direction:
+- Broker CSV: `file_sequence = source_row` (the export already lists oldest first).
+- Bank XLSX: `file_sequence = -source_row` (the export lists newest first; negating reverses
+  it without needing any date field).
+
+R-1.22 now sorts by `(date, file_sequence, source_file)`. `source_row` stays a pure
+traceability pointer (CLAUDE.md rule 10) with no ordering role of its own — this was also
+true before, but the failure made it worth stating explicitly.
+
+### 4.3 Consequence for already-built packages
+
+This is a data-model change (`LedgerEntry` gains a `file_sequence` field), so it reaches
+back into WP-2 (`models.py`), WP-4 (`broker_csv.py`), and WP-5 (`bank_xlsx.py`), all
+completed before this was found. Each needs a small patch (add the field; set it per R-6.1a
+/ R-7.5a) rather than a rewrite — none of their existing rule ranges or oracle numbers
+change.
+
+## 5. Own-accounts registry — derived from ingestion, not hand-maintained
+
+### 5.1 Options considered
 
 1. A hand-maintained reference file (`institution, iban, alias, opened_on, status`) edited whenever an account opens or closes.
 2. **Derived from the source documents themselves** *(adopted)*: an account is "the user's own" if and only if the user has supplied at least one statement/export for it. Every adapter, in addition to producing `LedgerEntry` rows, extracts an `AccountDeclaration` (`institution, iban_or_account, holder_name, declared_in_file, as_of_date`) from that same file's own metadata (the bank export's header block, the broker export's `CUSTOMER_INBOUND` counterparty/IBAN). The set of own accounts for a run is the union of every `AccountDeclaration` extracted from the files present in that run.
 
-### 4.2 Why option 2
+### 5.2 Why option 2
 
 The user only ever hands over documents for accounts that are theirs — so "this IBAN is mine" is never an unverifiable claim, it is backed by the very statement that proves it, satisfying the traceability rule (rule 10, CLAUDE.md) for free. It also removes a second place that needs manual upkeep in sync with the data: updating which accounts exist is implicit in supplying (or no longer supplying) statements for them, consistent with the stateless, recompute-from-raw-files design (§5.1 of the implementation plan).
 
-### 4.3 Consequence for adapters
+### 5.3 Consequence for adapters
 
 An adapter's output is therefore `(list[LedgerEntry], list[AccountDeclaration])`, not just ledger rows. The pipeline first collects every `AccountDeclaration` across all files in the run, then re-runs each adapter's internal/external classification against that combined set (a counterparty matches an own account by IBAN; matching by holder name alone is a lower-confidence fallback — see the full spec for the exact matching order).
