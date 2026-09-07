@@ -1182,3 +1182,58 @@ def test_empty_concepto_cell_raises_parse_error(tmp_path: Path) -> None:
     assert err.column == "Concepto"
     assert err.raw_value == ""
     assert err.expected == "a non-empty Concepto string"
+
+
+# ---------------------------------------------------------------------------
+# R-11.2: sniff()
+# ---------------------------------------------------------------------------
+
+
+def test_sniff_true_on_the_canonical_fixture() -> None:
+    assert bank_xlsx.sniff(BANK_XLSX) is True
+
+
+def test_sniff_false_on_a_non_xlsx_file(tmp_path: Path) -> None:
+    path = tmp_path / "not_an_xlsx.xlsx"
+    path.write_text("this is plain text, not a real workbook\n")
+    assert bank_xlsx.sniff(path) is False
+
+
+def test_sniff_false_when_the_movements_header_is_absent(tmp_path: Path) -> None:
+    def mutate(ws: Worksheet) -> None:
+        for row in range(8, 16):
+            for col in range(1, 7):
+                ws.cell(row=row, column=col).value = None
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="nomovements3.xlsx")
+    assert bank_xlsx.sniff(path) is False
+
+
+def test_sniff_uses_data_only_true_not_false_or_omitted(tmp_path: Path) -> None:
+    """Proves `sniff()` opens the workbook with `data_only=True`, the same as `parse()` and
+    `read_header_block()` (R-7.3/R-7.7's reasoning): a minimal, fully isolated header block
+    where the CUENTA label's only value candidate is a formula cell. `normalize_iban()`
+    applies no format validation, so whichever text `sniff()` actually reads there decides
+    the result outright:
+    - `data_only=True` (correct): the formula has no cached value (`None`), the search finds
+      no other match, and the header lookup raises -- `sniff()` returns `False`.
+    - `data_only=False`/omitted (a mutation): the literal formula text is read as a non-empty
+      string, `normalize_iban` accepts it unconditionally, and the rest of this minimal but
+      otherwise-complete header block/movements-row resolves fine -- `sniff()` returns `True`.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "CUENTA"
+    ws["A2"] = "=1+1"  # below: a formula, not a plain string
+    # No other "CUENTA" text anywhere, and B1/B2 stay blank, so A2 is the only candidate.
+    ws["A3"] = "TITULAR"
+    ws["A4"] = "SOME HOLDER"
+    ws["A5"] = "SALDO"
+    ws["A6"] = "1,00€"
+    ws["H7"] = "FECHA"
+    ws["I7"] = "01/01/2027"
+    ws.append(["Fecha operación", "Fecha valor", "Concepto", "Importe", "Saldo", "Divisa"])
+    path = tmp_path / "cuenta_formula.xlsx"
+    wb.save(path)
+
+    assert bank_xlsx.sniff(path) is False

@@ -234,3 +234,72 @@ meaningfully slow every future run for no real benefit. Both were fixed:
 
 Excluding the 21 already-documented equivalents (unchanged from WP-7), the real kill rate
 across every module built through WP-8 is 1793/1793 = 100%.
+
+## WP-9 (`pipeline.py`, `cli.py`, `render/section1_chart.py`, `render/prepare.py`, adapters'
+`sniff()` additions)
+
+Final run (every module in the project): **2383 mutants generated, 2343 killed, 39 survived,
+1 timeout** (the same `io_utils.x_read_csv_table__mutmut_12` flaky hang/kill documented since
+WP-3 — caught either way, not a new finding). Per new/changed module:
+
+- `pipeline.py`: 174 mutants, 5 survived = 97.1%.
+- `cli.py`: 83 mutants, 3 survived = 96.4%.
+- `render/section1_chart.py`: 250 mutants, 8 survived = 96.8%.
+- `render/prepare.py`: 37 mutants, **0 survived = 100%**.
+- `adapters/bank_xlsx.py` and `adapters/broker_csv.py`'s new `sniff()` functions added no new
+  survivors beyond each module's previously-documented baseline (9 and 6 respectively,
+  verified identical by exact mutant ID).
+
+All 39 survivors are non-money-path modules (`pipeline.py`'s threshold is ≥90% per the test
+plan; `cli.py` and `render/*` carry no explicit threshold since neither does arithmetic —
+`cli.py` only formats already-rounded strings and `render/section1_chart.py` is deliberately
+outside `money.py`'s Decimal discipline by design, R-10.4). One genuine test gap was found and
+fixed before reaching this final count (see below); every other survivor is a documented
+equivalent.
+
+### Real gap found and fixed
+
+`fina.cli.x_main__mutmut_20` mutated the `build` subparser's one-line `help=` text from
+`"Run the full pipeline over an input directory."` to `"XXRun the full pipeline over an input
+directory.XX"` (mutmut's own string-literal padding marker). `test_build_subcommand_help_text_
+is_exact` originally asserted the expected text with Python's `in` (substring) operator, which
+cannot tell the original text apart from the same text wrapped in extra characters — the
+original string remains a substring of the padded one either way. Fixed by asserting an exact,
+stripped-line match against the real `--help` output (`"build     Run the full pipeline over
+an input directory."` appears verbatim as one of the output's lines) instead of a substring
+check. No source change was needed; the test's assertion style was the gap. This is now killed.
+
+### `pipeline.py` — 5 documented equivalents
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `x__discover_files__mutmut_2` | `sorted(paths, key=lambda p: p.name)` → `key=None` | **Equivalent.** Every path compared here comes from the same `input_dir.iterdir()` call, so all candidates share an identical parent-directory prefix and differ only in their final path component. `Path.__lt__` compares the paths' own string forms; with an identical shared prefix, lexicographic order of the full path string is provably the same as lexicographic order of the trailing name alone (verified empirically with mixed-case and numeric-prefixed filenames — `sorted(paths, key=None) == sorted(paths, key=lambda p: p.name)` for every case tried). `key=None`'s natural `Path` ordering and `key=lambda p: p.name` are therefore indistinguishable for any set of sibling paths. |
+| `x__discover_files__mutmut_4` | drops the `key=` keyword argument entirely | **Equivalent**, same reasoning as above — `sorted(...)`'s own default is `key=None`, so omitting the keyword is identical to passing it explicitly. |
+| `x_write_manifest__mutmut_12` | `manifest_path.write_text(..., encoding="utf-8")` → `encoding=None` | **Equivalent in this project's test/deploy environment.** `Path.write_text(text, encoding=None)` resolves via `io.text_encoding`, which returns `"utf-8"` directly whenever the interpreter is running in UTF-8 mode (`sys.flags.utf8_mode`) — true here and on any modern container with no legacy locale installed (`locale -a` in this environment lists only `C`, `C.utf8`, `POSIX`; there is no non-UTF-8 locale to select even by forcing `LANG`/`LC_ALL`, and empirically monkeypatching `locale.getpreferredencoding` does not change the resolved encoding here, confirming UTF-8-mode short-circuits it). No test constructible in this environment can produce a different encoded byte sequence between `encoding="utf-8"` and `encoding=None`. |
+| `x_write_manifest__mutmut_14` | drops the `encoding=` keyword entirely | **Equivalent**, same reasoning — the omitted keyword defaults to `None`, identical to the mutant above. |
+| `x_write_manifest__mutmut_24` | `encoding="utf-8"` → `encoding="UTF-8"` | **Equivalent** — the same codec-name case-insensitivity already documented for `bank_xlsx.py`/`broker_csv.py` elsewhere in this file: Python's codec lookup normalizes case, so `"utf-8"` and `"UTF-8"` name the identical codec and always produce byte-identical output. |
+
+### `cli.py` — 3 documented equivalents
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `x__build__mutmut_29` | `(out_dir / "section1_chart.html").write_text(chart_html, encoding="utf-8")` → `encoding=None` | **Equivalent**, identical reasoning to `pipeline.py`'s `write_manifest` survivor above — this environment's Python always runs in UTF-8 mode with no alternate locale available, so `encoding=None` and `encoding="utf-8"` are behaviorally indistinguishable here. |
+| `x__build__mutmut_31` | drops the `encoding=` keyword entirely | **Equivalent**, same reasoning — defaults to `None`. |
+| `x__build__mutmut_36` | `encoding="utf-8"` → `encoding="UTF-8"` | **Equivalent** — codec-name case-insensitivity, same as documented elsewhere. |
+
+### `render/section1_chart.py` — 8 documented equivalents
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `x__build_points__mutmut_13` | `pad = (max_value - min_value) * 0.1 or 1.0` → `... or 2.0` | **Equivalent.** This fallback only activates when `max_value == min_value` (every point's value identical — a flat line), at which point `_y_scale`'s `fraction = (value - min_value) / span` reduces to `pad / (2 * pad) = 0.5` regardless of `pad`'s magnitude: every point maps to the exact vertical center of the plot no matter whether the fallback constant is `1.0` or `2.0`. When values are *not* all identical, `(max_value - min_value) * 0.1` is non-zero and the `or` fallback never triggers for either version. No input can make the two constants produce different pixel output. |
+| `x__band_polygons__mutmut_4` | `zip(points, points[1:], strict=False)` → `strict=None` | **Equivalent** — the already-documented `zip(..., strict=...)` pattern: `strict` is only ever checked for truthiness at the C level, and `False`/`None` are both falsy, so the two are indistinguishable at runtime for any input. |
+| `x__band_polygons__mutmut_7` | drops the `strict=` keyword entirely | **Equivalent**, same reasoning — `zip`'s own default is `strict=False`. |
+| `x_render_section1_chart__mutmut_17` | `zip(rows, points, strict=True)` → `strict=None` | **Equivalent.** `points` is built by `_build_points(rows)` as exactly one `_Point` per input row (a 1:1 comprehension over `enumerate(rows)`), so `len(points) == len(rows)` always holds by construction — `strict=True` can never actually raise here, making it behaviorally identical to `strict=None`/`strict=False`/omitted for every possible call. |
+| `x_render_section1_chart__mutmut_20` | drops the `strict=` keyword entirely | **Equivalent**, same reasoning as above — lengths are provably always equal. |
+| `x_render_section1_chart__mutmut_21` | `strict=True` → `strict=False` | **Equivalent**, same reasoning — lengths are provably always equal, so `strict`'s value is never observable. |
+| `x_render_section1_chart__mutmut_28` | `html.escape(tooltip, quote=True)` → drops the `quote=` keyword | **Equivalent** — the already-documented dropped-default-kwarg pattern: `True` is `html.escape`'s own default for `quote`, so omitting it is identical. |
+| `x_render_section1_chart__mutmut_33` | `html.escape(row.month_label, quote=True)` → drops the `quote=` keyword | **Equivalent**, same reasoning as the tooltip case immediately above. |
+
+Excluding all 39 documented equivalents (23 pre-existing + 16 new to WP-9: 5 `pipeline.py` + 3
+`cli.py` + 8 `render/section1_chart.py`), the real kill rate across the entire project is
+2343/2343 = 100%.

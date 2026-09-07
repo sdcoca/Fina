@@ -111,6 +111,22 @@ class _ParsedRow:
     name_field: str | None
 
 
+def sniff(file_path: Path) -> bool:
+    """R-11.2: does this file look like a Trade Republic broker CSV export, by header shape
+    alone -- never by filename or extension? Used by the pipeline to pick an adapter; any
+    failure to read or parse the file as this shape simply means "not this shape", not an
+    error to propagate.
+    """
+    try:
+        text, _decode_warnings = decode_text_with_fallback(
+            file_path.read_bytes(), source_file=file_path.name
+        )
+        header, _data_rows = read_csv_table(text)
+    except Exception:
+        return False
+    return set(REQUIRED_COLUMNS) <= set(header)
+
+
 def parse(file_path: Path) -> AdapterResult:
     """R-5.1: parse a Trade Republic broker CSV export into an ``AdapterResult``."""
     source_file = file_path.name

@@ -109,10 +109,22 @@ class _FloatScanner(ast.NodeVisitor):
         return isinstance(node, (ast.Name, ast.Attribute, ast.Subscript))
 
 
+#: G-6 / CLAUDE.md rule 9 ban float in *money calculations*; `src/fina/render/` is a chart
+#: renderer, not a money path -- R-10.4 requires it to accept already-Decimal-rounded display
+#: strings for every money figure (never recomputing one) and use `float` only for its own
+#: pixel/SVG-geometry placement, which is not a financial computation. This exclusion is
+#: narrow and auditable: `fina.render.prepare.to_chart_rows` is the one function that ever
+#: converts a `Decimal` at all, and test_render_prepare.py/test_section1_chart.py's own T-700
+#: separately proves `section1_chart.py` itself never references `Decimal` in the first place.
+_NOT_A_MONEY_PATH = SRC_ROOT / "render"
+
+
 def test_t902_no_floats_in_money_paths() -> None:
-    """G-6 / R-1.1 / R-1.2: AST scan of every module under src/fina."""
+    """G-6 / R-1.1 / R-1.2: AST scan of every money-path module under src/fina."""
     all_violations: list[str] = []
     for path in _iter_source_files():
+        if _NOT_A_MONEY_PATH in path.parents:
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         scanner = _FloatScanner(path)
         scanner.visit(tree)

@@ -269,6 +269,21 @@ class _ParsedRow:
     counterparty_name: str | None
 
 
+def sniff(file_path: Path) -> bool:
+    """R-11.2: does this file look like a Spanish retail-bank XLSX export, by header shape
+    alone -- never by filename or extension? Used by the pipeline to pick an adapter; any
+    failure to open or parse the file as this shape simply means "not this shape", not an
+    error to propagate.
+    """
+    try:
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        ws = wb.worksheets[0]
+        _read_header_block_from_sheet(ws, source_file=file_path.name)
+    except Exception:
+        return False
+    return True
+
+
 def parse(file_path: Path) -> AdapterResult:
     """R-5.1: parse a Spanish retail-bank XLSX export into an ``AdapterResult``."""
     source_file = file_path.name

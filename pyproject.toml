@@ -20,6 +20,8 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.6",
     "types-openpyxl",
+    "playwright>=1.40",
+    "pillow>=10",
 ]
 
 [project.scripts]
@@ -75,5 +77,13 @@ ignore = []
 # test_models.py, ...); the meta-gates run separately via the plain `pytest` invocation in the
 # verification protocol.
 source_paths = ["src/fina"]
-pytest_add_cli_args_test_selection = ["tests", "--ignore=tests/test_gates_meta.py"]
+# test_render_browser.py is excluded for the same reason: it re-launches a real headless
+# browser per test to verify *rendering* behaviour (screenshots, PDF export), which every
+# mutant re-running the whole suite would make prohibitively slow for no unique Python line
+# coverage -- section1_chart.py's own code is fully covered by test_section1_chart.py alone.
+pytest_add_cli_args_test_selection = [
+    "tests",
+    "--ignore=tests/test_gates_meta.py",
+    "--ignore=tests/test_render_browser.py",
+]
 runner = "python -m pytest -x -q"

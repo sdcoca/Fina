@@ -144,3 +144,57 @@ interpretation (a) or (c) without the project owner's sign-off would be guessing
 rule is wrong — exactly what R-0.3 forbids, on precisely the rule (R-8.2, zero-tolerance
 reconciliation) implementation-plan.md §4.7 names as requiring the most adversarial scrutiny.
 I did not implement any reconciliation code while this stood open.
+
+## Q-G — No approved visual mock available for the WP-9 chart (found in WP-9) — flagged deviation, needs owner sign-off
+
+**Context**: R-10.2 fixes the chart's visual contract "validated against the approved mock,"
+and `implementation-plan.md`'s WP-9 entry is explicit: "the chart's visual contract (R-10.2)
+is fixed by the approved mock; port it, do not redesign it," and even cites a specific
+historical defect already found and fixed in that mock (a fixed-width tooltip and
+`backdrop-filter` blur that "both looked fine on desktop and were unusable on an actual
+phone"). Both documents treat the mock as an existing, authoritative artifact.
+
+**Ambiguity**: no such mock exists anywhere in this working tree, and an exhaustive search
+(`git log --all --diff-filter=A` across every branch and tag, plus a full-tree grep for
+"mock"/image assets) found no file it could ever have been — it is genuinely inaccessible
+from here, not merely hard to find.
+
+**What I did (flagging per CLAUDE.md rule 7, since this departs from an explicit instruction
+rather than filling a silent gap)**: rather than stopping WP-9 entirely on a missing asset I
+have no way to obtain, I proceeded with an independently-designed chart that satisfies every
+literal, independently-testable rule in R-10.1..R-10.5 and R-10.2a/R-10.2b (two series styled
+distinctly, a band coloured by `gap`'s sign with an exact linear zero-crossing boundary,
+click-only dismissible tooltips that don't wrap at 390px and read the band behind them via
+plain alpha — no `backdrop-filter` — final-point value labels, no band legend, no footer,
+both theme palettes token-defined, mobile verified first via real headless-browser
+screenshots per R-10.2a). None of these rules requires seeing the mock to verify — each is
+checked directly against the rendered output (T-700..T-709). What is **not** verified, and
+cannot be without the mock, is whether this implementation's actual colours, spacing, and
+layout match the approved design the spec assumes exists — only that it does not violate any
+rule the spec states explicitly.
+
+**Options for the project owner**:
+(a) Accept the independently-designed chart as-is (it is rule-compliant on every literal,
+    testable term) and treat "port the mock" as moot until the mock resurfaces.
+(b) Supply the approved mock now (file, screenshot, or link) so WP-9's chart can be redone as
+    a genuine port rather than an independent design, per the original instruction.
+(c) Treat this as blocking and hold WP-9's chart output as provisional/unapproved pending (b),
+    even though every other gate (tests, coverage, mutation testing, mypy, ruff) is green.
+
+**Recommendation**: (a) to avoid discarding verified, rule-compliant work over an asset that
+was never reachable from this environment, **conditioned on the project owner reviewing the
+actual rendered chart** (both the 390px and desktop screenshots) before treating its specific
+visual design — as opposed to its rule-compliance — as final; if the owner has the real mock
+and sees a meaningful mismatch, redoing the visual design against it is a bounded, low-risk
+change (`render/section1_chart.py`'s template/CSS only — no other module depends on its exact
+appearance, only on `ChartRow`'s data contract).
+
+**Status**: unresolved — this is a genuine deviation from an explicit instruction, not merely
+an unstated gap, so it is not marked RESOLVED and awaits the project owner's choice among the
+options above.
+(`reconciliation.py`) is blocked on this question**: T-350 ("Bank fixture reconciles with
+zero discrepancy on every row") cannot pass under interpretation (b), and implementing
+interpretation (a) or (c) without the project owner's sign-off would be guessing at which
+rule is wrong — exactly what R-0.3 forbids, on precisely the rule (R-8.2, zero-tolerance
+reconciliation) implementation-plan.md §4.7 names as requiring the most adversarial scrutiny.
+I did not implement any reconciliation code while this stood open.
