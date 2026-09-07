@@ -19,6 +19,7 @@ dev = [
     "mutmut>=3",
     "mypy>=1.10",
     "ruff>=0.6",
+    "types-openpyxl",
 ]
 
 [project.scripts]

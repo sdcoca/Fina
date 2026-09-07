@@ -67,3 +67,65 @@ timeout (see above). `broker_csv.py` alone: 583 mutants, 578 killed, 5 survived 
 Excluding these 5 documented equivalents, `broker_csv.py`'s real kill rate is 578/578 = 100%.
 Across every module built through WP-4, combining all documented equivalents (3 + 4 + 5 = 12)
 and the one timeout, the real kill rate is 812/812 = 100%.
+
+## WP-5 (`adapters/bank_xlsx.py`)
+
+Final run (all six modules through WP-5): 1452 mutants generated, 1432 killed, 20 survived, 0
+timeout (the WP-3 `read_csv_table` mutant above is a genuine infinite loop whose classification
+as `timeout` vs `killed` depends on scheduling/load between runs; it never shows as `survived`
+and is treated as caught either way, per the WP-3 section above). `bank_xlsx.py` alone: 626
+mutants, 618 killed, 8 survived = **98.7%** (threshold: 90%).
+
+(An earlier pass through this same file's mutants found 13 survivors instead of 8: 2 were
+genuine test-construction bugs, fixed below rather than written off; 3 more were genuine gaps
+closed with new integration tests, also below. The 8 listed here are the ones that remained
+after those fixes and were independently re-verified as equivalent.)
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `fina.adapters.bank_xlsx.x__find_label_value__mutmut_8` | `cast(int, cell.row)` → `cast(None, cell.row)` | **Equivalent.** `typing.cast` is a pure runtime no-op — its first argument is never inspected at runtime, only by static type checkers. `cast(int, x)` and `cast(None, x)` return the identical object `x`. Same reasoning as every other `cast()` survivor documented for earlier packages. |
+| `fina.adapters.bank_xlsx.x__find_label_value__mutmut_13` | `cast(int, cell.column)` → `cast(None, cell.column)` | **Equivalent**, same reason. |
+| `fina.adapters.bank_xlsx.x__parse_header_date__mutmut_5` | `raw.split("|", 1)[0]` → `raw.split("|")[0]` (maxsplit dropped, defaults to unlimited) | **Equivalent.** Only index `[0]` of the result is ever used. `str.split(sep, maxsplit)`'s first element is identical regardless of `maxsplit` (a smaller maxsplit only limits how many *further* splits happen; it can never change where the *first* split occurs). Verified interactively: `"10/03/2027 \| 09:00:00 \| extra".split("\|", 1)[0] == "10/03/2027 \| 09:00:00 \| extra".split("\|")[0] == "10/03/2027 \| 09:00:00 \| extra".split("\|", 2)[0]`. |
+| `fina.adapters.bank_xlsx.x__parse_header_date__mutmut_8` | same call, `maxsplit=1` → `maxsplit=2` | **Equivalent**, same reason. |
+| `fina.adapters.bank_xlsx.x__find_movements_header_row__mutmut_6` | `cast(int, row[0].row)` → `cast(None, row[0].row)` | **Equivalent**, `cast()` no-op (see above). |
+| `fina.adapters.bank_xlsx.x__find_movements_header_row__mutmut_10` | `row[0].row` → `row[1].row` | **Equivalent.** `row` is one tuple of `Cell` objects yielded by a single call to `Worksheet.iter_rows()`; by openpyxl's own contract every cell in that tuple belongs to the same physical spreadsheet row, so `.row` is identical across all of them. Verified interactively: for a row appended via `ws.append([...])`, `[c.row for c in row]` is `[1, 1, 1, 1, 1, 1]` — `row[0].row` and `row[1].row` can never differ. |
+| `fina.adapters.bank_xlsx.x_parse__mutmut_16` | drops the explicit `source_row=None` keyword argument to `Warning(...)` | **Equivalent**, same reasoning as the WP-3/WP-4 `Warning(source_row=None)` survivors: `Warning.source_row` defaults to `None`. |
+| `fina.adapters.bank_xlsx.x__build_entry__mutmut_2` | `compute_cash_effect(row.movement_type, row.amount_eur, None)` → `compute_cash_effect(None, row.amount_eur, None)` | **Equivalent, by construction of this module.** `compute_cash_effect` only branches on its first argument for `MovementType.BUY`, `MovementType.SELL`, `MovementType.TECHNICAL_ADJUSTMENT`, or a D3-deferred type; every other value (including `None`) falls through to the same `return amount_eur`. `bank_xlsx.py`'s `_match_concept` is a fixed, exhaustively-enumerated set of 9 rules that only ever produce `MovementType.EXPENSE`, `MovementType.EXTERNAL_DEPOSIT`, `MovementType.EXTERNAL_WITHDRAWAL`, or `MovementType.PAYROLL_INCOME` (grep-verified: no other `MovementType.*` literal appears in this file) — none of which is BUY/SELL/TECHNICAL_ADJUSTMENT/D3-deferred. So for every `row.movement_type` this module can ever actually produce, `compute_cash_effect(row.movement_type, ...)` and `compute_cash_effect(None, ...)` return the same value. (This mutant would *not* be equivalent in a module that could produce BUY/SELL/TECHNICAL_ADJUSTMENT rows, e.g. `broker_csv.py` — the equivalence is local to `bank_xlsx.py`'s restricted output domain, not a property of `compute_cash_effect` itself.) |
+
+Two mutants that looked at first like genuine test gaps turned out to be **real bugs in the
+tests**, not equivalences, and were fixed rather than written off:
+
+- `_find_label_value__mutmut_39` (`(None, "")` → `(None, "XXXX")` in the empty-candidate
+  check) survived because the original regression test saved its worksheet to an `.xlsx` file
+  and reloaded it before calling `_find_label_value` — and openpyxl does not round-trip a
+  genuinely empty-string cell value through `save`/`load_workbook`: it comes back as `None`,
+  silently collapsing the test into the already-covered `None` case instead of the `""` case
+  it was meant to target (verified interactively). Fixed by asserting directly against the
+  in-memory `Worksheet` (no save/reload), which does preserve `""`.
+- `_parse_header_date__mutmut_2` (`raw.split("\|", 1)` → `raw.split(None, 1)`, i.e. pipe-split
+  vs whitespace-split) survived because the original test's input, `"10/03/2027 \| 09:00:00 \|
+  extra"`, has a space immediately before the first `\|` — so the first *whitespace*-delimited
+  token and the first *pipe*-delimited token happen to be identical (`"10/03/2027"` either
+  way), and the two splitting strategies were never actually distinguished. Fixed by adding a
+  second test, `"10/03/2027\|09:00:00"` (no space before the `\|`), where the two strategies
+  diverge: pipe-split still isolates the date; whitespace-split sees no whitespace at all and
+  returns the full string as one token, which fails to parse as a date.
+
+Three more looked like genuine test gaps and were closed with new integration-level tests
+rather than written off as equivalent, since they are not equivalent — they reflect
+`_read_header_block_from_sheet` passing `max_row=None` (unbounded) instead of `max_row=boundary`
+for one of its four label lookups, which is only observable when the in-block label's own
+candidates are all empty *and* a duplicate label with a real value exists beyond the boundary
+(a condition the two-line canonical fixture never exercises, but a hand-built one can):
+
+| Mutant ID | Diff | Resolution |
+|---|---|---|
+| `fina.adapters.bank_xlsx.x__read_header_block_from_sheet__mutmut_13` | `_find_label_value(ws, "CUENTA", ..., max_row=boundary)` → `max_row=None` | Closed by `test_read_header_block_cuenta_lookup_is_bounded_to_the_header_block`. |
+| `fina.adapters.bank_xlsx.x__read_header_block_from_sheet__mutmut_24` | same, for `"TITULAR"` | Closed by `test_read_header_block_titular_lookup_is_bounded_to_the_header_block`. |
+| `fina.adapters.bank_xlsx.x__read_header_block_from_sheet__mutmut_46` | same, for `"FECHA"` | Closed by `test_read_header_block_fecha_lookup_is_bounded_to_the_header_block`. |
+
+Excluding the 8 documented equivalents above, `bank_xlsx.py`'s real kill rate is 618/618 = 100%.
+Across every module built through WP-5, combining all documented equivalents from every package
+(3 from WP-1/2 + 4 from WP-3 + 5 from WP-4 + 8 from WP-5 = 20, matching the 20 mutants this run
+reports as `survived` exactly) and the one recurring timeout/hang, the real kill rate is
+1432/1432 = 100%.

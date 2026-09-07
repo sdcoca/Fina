@@ -84,6 +84,18 @@ def ibans_match(a: str, b: str) -> bool:
     return normalize_iban(a) == normalize_iban(b)
 
 
+def fold_vowel_accents(raw: str) -> str:
+    """Fold acute/diaeresis accents off vowels only; ``Ñ`` is left untouched (R-1.13).
+
+    Exposed publicly (beyond :func:`normalize_name`'s internal use) because R-7.10's
+    case-insensitive, accent-insensitive ``Concepto`` matching needs the identical,
+    length-preserving fold -- length-preserving so a regex match's span in the folded text
+    can be sliced directly out of the original (trimmed) text to recover a verbatim
+    substring, e.g. a counterparty name.
+    """
+    return raw.translate(_VOWEL_ACCENT_TABLE)
+
+
 def normalize_name(raw: str) -> str:
     """Normalize a holder/counterparty name for matching (R-1.13).
 
@@ -95,7 +107,7 @@ def normalize_name(raw: str) -> str:
     s = raw.strip()
     s = _WHITESPACE_RUN_RE.sub(" ", s)
     s = s.upper()
-    return s.translate(_VOWEL_ACCENT_TABLE)
+    return fold_vowel_accents(s)
 
 
 def _name_multiset(raw: str) -> tuple[str, ...]:
