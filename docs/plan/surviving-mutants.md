@@ -198,3 +198,39 @@ Excluding the 1 documented equivalent, `reconciliation.py`'s real kill rate is 7
 Across every module built through WP-7, combining all documented equivalents from every
 package (3 + 4 + 5 + 8 + 1 = 21, matching the 21 mutants this run reports as `survived`
 exactly), the real kill rate is 1627/1627 = 100%.
+
+## WP-8 (`section1.py`)
+
+Run (all nine modules through WP-8): 1814 mutants generated, 1793 killed, 21 survived, 0
+timeout. `section1.py` alone: **166 mutants, 166 killed, 0 survived = 100%** (threshold: 95%).
+The same 21 survivors as every prior section, unchanged -- no new equivalent needed here.
+
+An initial pass found 12 real survivors (dropped `start=Decimal("0")` defaults on four
+different `sum()` calls -- a real type bug, since `sum([], start=0)`'s `int` `0` equals
+`Decimal("0")` by value but not by type, silently passing a bare `==` check; an inverted
+`account == account` → `!=` filter; an off-by-one `date <= as_of` → `< as_of` boundary; three
+D3 error-message text mutations; and two `compute_section1` call-site argument swaps that
+would have zeroed every period's `savings_flow` without any all-zero-flow test noticing) plus
+**8 timeouts**: `_next_month`/`_months_from`'s original `while True` loop hung forever under a
+broken termination condition or step function, since no test spanned enough months to force a
+wrong step to misbehave *quickly* rather than loop. Mutmut correctly detected each hang and
+reported `timeout` rather than `survived`, so none of these were undetected -- but 8 timeouts
+meaningfully slow every future run for no real benefit. Both were fixed:
+
+- The 12 survivors were closed with new/strengthened tests: explicit `isinstance(..., Decimal)`
+  checks on a filter that matches nothing, a two-distinct-accounts test proving
+  `cash_balance`'s account filter actually excludes the other account, a same-day boundary
+  test for `quantity_held`'s `<=`, an exact `NotImplementedError` message assertion for the D3
+  branch, and a `compute_section1`-level test asserting each period's own `savings_flow`
+  value (not just the standalone function tested in isolation) against a ledger with a
+  distinct, non-zero flow per month.
+- The 8 timeouts were eliminated by design, not by more tests: `_months_from` no longer walks
+  month-by-month with a `while True` loop at all. It computes each endpoint's ordinal month
+  index (`year * 12 + month - 1`, so consecutive calendar months are consecutive integers) and
+  iterates a plain `range()` between them -- a loop that is *always* finite by construction,
+  regardless of what a mutation does to the arithmetic inside it. A broken step or termination
+  condition now produces a wrong-length list (an assertion failure, caught immediately) instead
+  of a hang.
+
+Excluding the 21 already-documented equivalents (unchanged from WP-7), the real kill rate
+across every module built through WP-8 is 1793/1793 = 100%.
