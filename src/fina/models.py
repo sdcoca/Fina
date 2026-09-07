@@ -167,6 +167,7 @@ class LedgerEntry:
     status: Status
     source_file: str
     source_row: int
+    file_sequence: int
     raw: Mapping[str, str] = field(compare=True)
 
     def __post_init__(self) -> None:

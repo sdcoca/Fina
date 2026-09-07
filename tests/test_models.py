@@ -52,6 +52,7 @@ def make_entry(**overrides: object) -> LedgerEntry:
         "status": "actual",
         "source_file": SOURCE_FILE,
         "source_row": 2,
+        "file_sequence": 2,
         "raw": {"amount": "100.00"},
     }
     defaults.update(overrides)
