@@ -129,3 +129,25 @@ Across every module built through WP-5, combining all documented equivalents fro
 (3 from WP-1/2 + 4 from WP-3 + 5 from WP-4 + 8 from WP-5 = 20, matching the 20 mutants this run
 reports as `survived` exactly) and the one recurring timeout/hang, the real kill rate is
 1432/1432 = 100%.
+
+## WP-6 (`classification.py`)
+
+Run (all seven modules through WP-6): 1563 mutants generated, 1542 killed, 20 survived, 1
+timeout (the same recurring WP-3 `read_csv_table` hang, unchanged). `classification.py` alone:
+111 mutants, **111 killed, 0 survived = 100%** (threshold: 90%).
+
+An initial pass surfaced 11 survivors in `classification.py` -- all genuine test gaps, not
+equivalent mutants, closed by strengthening/adding tests rather than written off:
+
+| Mutant ID | Diff | Fix |
+|---|---|---|
+| `x_collect_owned_accounts__mutmut_5` | `continue` → `break` when skipping a no-IBAN declaration | Added `test_a_no_iban_declaration_does_not_stop_scanning_the_rest_of_the_list`: a no-IBAN declaration followed by a genuine IBAN conflict -- `break` would silently swallow the conflict. |
+| `x_classify_entries__mutmut_21` | `continue` → `break` after appending a name-matched internal transfer | Added `test_a_name_matched_internal_transfer_does_not_stop_processing_later_entries`: asserts a second entry after the first is still classified, not dropped. |
+| `x_classify_entries__mutmut_27`, `_28` | `"from"` → `"XXfromXX"` / `"FROM"` in the R-3.6 warning's direction wording | `test_t308_external_row_matching_owned_holder_name_warns_but_stays_external` now asserts the warning's exact message text (was previously a substring check on the counterparty name only). |
+| `x_classify_entries__mutmut_39`, `_40`, `_41`, `_42` | Case/marker mutations of the warning message's fixed text | Same fix: an exact full-string assertion pins every word. |
+| `x__reclassify_internal__mutmut_2` | `cash_effect_eur > 0` → `> 1` | T-305 gained a `Decimal("0.01")` case: strictly between 0 and 1, so `> 0` and `> 1` disagree. |
+| `x__reclassify_internal__mutmut_13`, `_15` | Case/marker mutations of the `ValidationError.invariant` text | T-306 now asserts `err.invariant` exactly, not merely `"R-3.5" in err.invariant`. |
+
+Excluding the same 20 already-documented equivalents from WP-1 through WP-5 (unchanged; the
+recurring timeout is treated as caught, per the WP-3 section above), the real kill rate across
+every module built through WP-6 is 1542/1542 = 100%.
