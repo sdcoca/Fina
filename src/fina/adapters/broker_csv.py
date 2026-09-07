@@ -410,6 +410,7 @@ def _build_entry(row: _ParsedRow, source_file: str) -> LedgerEntry:
         status="actual",
         source_file=source_file,
         source_row=row.source_row,
+        file_sequence=row.source_row,  # R-6.1a: this export already lists rows oldest-first.
         raw=row.raw,
     )
 

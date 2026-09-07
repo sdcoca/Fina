@@ -576,6 +576,16 @@ def test_t128_source_row_is_physical_1_indexed_row() -> None:
     assert result.entries[-1].source_row == 19
 
 
+def test_t360_file_sequence_equals_source_row_for_every_entry() -> None:
+    """R-6.1a: this export already lists rows oldest-first, so file_sequence needs no
+    transformation from source_row.
+    """
+    result = broker_csv.parse(BROKER_CSV)
+    assert len(result.entries) > 0
+    for entry in result.entries:
+        assert entry.file_sequence == entry.source_row
+
+
 # ---------------------------------------------------------------------------
 # R-6.10..R-6.14: MIGRATION pairing
 # ---------------------------------------------------------------------------
