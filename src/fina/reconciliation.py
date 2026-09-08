@@ -1,6 +1,9 @@
 """Balance reconciliation against each source's own declared running balance (spec section 8).
 
-Implements: R-8.1..R-8.5.
+Implements: R-8.1..R-8.5. Also exposes `anchor_at` (R-9.1), the R-8.3 baseline lookup
+`section1.py` calls rather than re-deriving independently -- see R-9.1's rationale in
+`docs/spec/section1-ingestion-spec.md` for the real bug (Q-H) this one-formula-not-two
+requirement was written to prevent.
 """
 
 from __future__ import annotations
@@ -19,8 +22,11 @@ from fina.models import LedgerEntry, Warning
 _DeclaredPair = tuple[LedgerEntry, Decimal]
 
 
-def _sort_key(entry: LedgerEntry) -> tuple[_date, int, str]:
-    """R-1.22: `(date, file_sequence, source_file)` ascending."""
+def sort_key(entry: LedgerEntry) -> tuple[_date, int, str]:
+    """R-1.22: `(date, file_sequence, source_file)` ascending. Public (not `_sort_key`)
+    because `section1.py`'s R-9.1 anchor arithmetic needs to compare two entries' sort keys
+    the same way this module orders them for reconciliation -- one definition, not two.
+    """
     return (entry.date, entry.file_sequence, entry.source_file)
 
 
@@ -108,7 +114,7 @@ def reconcile(
     resolved_header_balances = header_balances or {}
     warnings: list[Warning] = []
     for (institution, account), group in _group_by_account(entries).items():
-        ordered = sorted(group, key=_sort_key)
+        ordered = sorted(group, key=sort_key)
         pairs = _with_declared_balance(ordered)
         if not pairs:
             warnings.append(
@@ -125,3 +131,34 @@ def reconcile(
         _check_balance_chain(pairs)
         _check_header_balance(institution, pairs, resolved_header_balances)
     return tuple(warnings)
+
+
+def anchor_at(
+    entries: Sequence[LedgerEntry], institution: str, account: str, as_of: _date
+) -> _DeclaredPair | None:
+    """R-8.3/R-9.1: the reconciliation baseline for `(institution, account)` at or before
+    `as_of` -- the entry with the latest `sort_key` (R-1.22) among all entries for this pair
+    that carry a non-`None` `declared_balance` and are dated on or before `as_of`, paired with
+    that balance. `as_of` is a bare date, not a full sort key, so "at or before `as_of`" is
+    read as "dated on or before `as_of`"; among ties on that filter the entry with the latest
+    `sort_key` wins, exactly mirroring how `_check_balance_chain` picks each row's predecessor.
+
+    Returns `None` when no such entry exists -- R-8.4's case, the whole `(institution,
+    account)` group carries no declared balance at all (e.g. the broker's cash sub-account,
+    whose export has no running-balance column). `section1.py`'s `cash_balance` calls this
+    rather than re-deriving the same fact independently: before this function existed,
+    `cash_balance` summed `cash_effect_eur` from an assumed zero balance, which silently
+    dropped any unrecorded balance that predated an account's earliest ingested entry (the
+    real bug this function exists to fix -- see R-9.1's rationale in the spec).
+    """
+    candidates = [
+        (entry, entry.declared_balance)
+        for entry in entries
+        if entry.institution == institution
+        and entry.account == account
+        and entry.declared_balance is not None
+        and entry.date <= as_of
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda pair: sort_key(pair[0]))

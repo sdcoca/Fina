@@ -9,7 +9,7 @@ logic, which is what this file covers (T-350..T-357).
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,7 +20,7 @@ from builders import BANK_XLSX, BROKER_CSV, bank_xlsx_with
 from fina.adapters import bank_xlsx, broker_csv
 from fina.errors import ReconciliationError
 from fina.models import LedgerEntry, MovementType, Warning
-from fina.reconciliation import reconcile
+from fina.reconciliation import anchor_at, reconcile
 
 SOURCE_FILE = "banco_ejemplo.xlsx"
 
@@ -243,6 +243,75 @@ def test_header_balance_check_is_skipped_when_not_supplied() -> None:
 # ---------------------------------------------------------------------------
 # R-8.2/R-1.5: exact Decimal equality, no epsilon
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# R-9.1 (Q-H): anchor_at, the R-8.3 baseline lookup section1.py's cash_balance calls
+# ---------------------------------------------------------------------------
+
+
+def test_t362_anchor_at_returns_the_latest_declared_balance_entry_at_or_before_as_of() -> None:
+    result = bank_xlsx.parse(BANK_XLSX)
+    # §12.1: source_row 9 (07/03/2027) is the last row per R-1.22 order; its declared_balance
+    # (6183.75) is the anchor for any as_of on or after that date.
+    anchor = anchor_at(result.entries, "bank_es", "current_account", date(2027, 3, 7))
+    assert anchor is not None
+    anchor_entry, anchor_balance = anchor
+    assert anchor_entry.source_row == 9
+    assert anchor_balance == Decimal("6183.75")
+
+
+def test_t362b_anchor_at_picks_the_latest_qualifying_entry_not_just_any_match() -> None:
+    """`as_of` sits strictly between two declared-balance rows: the anchor must be the earlier
+    one (05/03), not the later one (07/03) which is dated after `as_of`.
+    """
+    result = bank_xlsx.parse(BANK_XLSX)
+    anchor = anchor_at(result.entries, "bank_es", "current_account", date(2027, 3, 5))
+    assert anchor is not None
+    anchor_entry, anchor_balance = anchor
+    assert anchor_entry.source_row == 11  # §12.1: 05/03/2027, declared Saldo 6.260,35
+    assert anchor_balance == Decimal("6260.35")
+
+
+def test_t362c_anchor_at_before_any_declared_balance_returns_none() -> None:
+    result = bank_xlsx.parse(BANK_XLSX)
+    earliest = min(e.date for e in result.entries)
+    before_everything = earliest - timedelta(days=1)
+    assert anchor_at(result.entries, "bank_es", "current_account", before_everything) is None
+
+
+def test_t363_anchor_at_returns_none_for_an_account_with_no_declared_balance_at_all() -> None:
+    """R-8.4's case: the broker export has no running-balance column, so neither of its two
+    sub-accounts ever has a `declared_balance` to anchor to.
+    """
+    result = broker_csv.parse(BROKER_CSV)
+    latest = max(e.date for e in result.entries)
+    assert anchor_at(result.entries, "trade_republic", "cash", latest) is None
+    assert anchor_at(result.entries, "trade_republic", "positions", latest) is None
+
+
+def test_anchor_at_excludes_other_accounts_of_the_same_institution() -> None:
+    cash = make_entry(
+        entry_id="c1",
+        institution="trade_republic",
+        account="cash",
+        declared_balance=Decimal("100.00"),
+        date=date(2023, 1, 1),
+        source_row=2,
+        file_sequence=2,
+    )
+    positions = make_entry(
+        entry_id="p1",
+        institution="trade_republic",
+        account="positions",
+        declared_balance=Decimal("999.00"),
+        date=date(2023, 1, 1),
+        source_row=3,
+        file_sequence=3,
+    )
+    anchor = anchor_at([cash, positions], "trade_republic", "cash", date(2023, 1, 1))
+    assert anchor is not None
+    assert anchor[1] == Decimal("100.00")
 
 
 def test_t357_a_sub_cent_difference_still_raises() -> None:

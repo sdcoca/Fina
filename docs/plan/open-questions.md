@@ -204,12 +204,30 @@ appearance, only on `ChartRow`'s data contract).
 **Status**: unresolved — this is a genuine deviation from an explicit instruction, not merely
 an unstated gap, so it is not marked RESOLVED and awaits the project owner's choice among the
 options above.
-(`reconciliation.py`) is blocked on this question**: T-350 ("Bank fixture reconciles with
-zero discrepancy on every row") cannot pass under interpretation (b), and implementing
-interpretation (a) or (c) without the project owner's sign-off would be guessing at which
-rule is wrong — exactly what R-0.3 forbids, on precisely the rule (R-8.2, zero-tolerance
-reconciliation) implementation-plan.md §4.7 names as requiring the most adversarial scrutiny.
-I did not implement any reconciliation code while this stood open.
+
+**IMPLEMENTED (this session)**: `render/section1_chart.py` was re-derived as a genuine port of
+`docs/design/section1-approved-mock.html` — the same colour tokens (`--page`, `--surface`,
+`--ink`/`--ink-2`/`--muted`, `--grid`, `--border`, `--line-real`/`--line-ahorro`,
+`--gain-fill`/`--gain-line`, `--loss-fill`/`--loss-line`, `--tooltip-bg`) in both light and
+dark, IBM Plex Serif/Sans/Mono typography (see Q-I below for the one deliberate deviation —
+the actual Google Fonts `<link>` is not ported, only the font-family declarations), the mock's
+spacing and layout (960×420 viewBox, gridlines with "Nk" axis labels, every-other-month x-axis
+labels, direct end-of-line value labels), the translucent click-to-reveal tooltip with its own
+close button and the mock's own month-header/row/bordered-gap-row structure, and the two-line
+series legend with no band-colour chips. The interaction model (a single shared hit-area
+mapping a click position to the nearest month, rather than one target per point) is also
+ported from the mock, replacing WP-9's original one-`circle.hit`-per-point design.
+
+Every literal rule (R-10.1..R-10.5, R-10.2a, R-10.2b) and every T-700..T-709 test still passes,
+re-verified against the new markup — see `tests/test_section1_chart.py` and
+`tests/test_render_browser.py` (the latter re-run with a real headless Chromium browser at both
+390px and desktop, confirming the translucent tooltip, no-wrap text, click-to-open/close, and
+PDF export all still work against the ported design). Coverage stayed 100% and mutation testing
+was re-run in full: `render/section1_chart.py` alone is 421/430 (97.9%) with the 9 survivors
+documented in `docs/plan/surviving-mutants.md` as equivalent mutants (`zip(strict=...)`
+variants and one flat-line `or`-fallback, the same patterns already documented elsewhere in
+this project) — excluding them, 421/421 = 100%. `ChartRow`'s data contract, `pipeline.py`, and
+`cli.py` were unchanged; no money-path module was touched by this port.
 
 ## Q-H — `real_net_worth` silently omits any unrecorded pre-ledger opening balance (found in final review, first end-to-end run)
 
@@ -260,4 +278,87 @@ full before `WP-9`'s already-built chart is considered to still be operating on 
 numbers — `WP-9` itself does not need code changes for this bug, only re-confirmation once
 `WP-8`'s output changes.
 
-**Status**: awaiting project-owner confirmation of option (a) before implementation resumes.
+**Status**: **RESOLVED / IMPLEMENTED (this session)**. Option (a), confirmed by the project
+owner. `reconciliation.py` now exposes `anchor_at(entries, institution, account, as_of)`: the
+entry with the latest R-1.22 `sort_key` (also newly exposed, renamed from `_sort_key`) among
+all entries for that `(institution, account)` pair carrying a non-`None` `declared_balance` and
+dated on or before `as_of`, or `None` when the pair has no declared balance at all (R-8.4's
+case). `section1.py`'s `cash_balance` calls it: `anchor.declared_balance + Σ cash_effect_eur`
+for entries with a later sort key, dated on or before `as_of`; falls back to the original raw
+summation, unchanged, only when `anchor_at` returns `None`. `real_net_worth` was also changed
+from a flat sum of every entry's `cash_effect_eur` to `Σ cash_balance(·, t)` over each distinct
+`(institution, account)` pair — the two stopped being equivalent the moment any pair could be
+non-zero-anchored.
+
+Regression tests T-401a/b/c are implemented in `tests/test_section1.py`, plus new direct unit
+tests for `anchor_at` itself in `tests/test_reconciliation.py` (T-362/T-362b/T-362c/T-363) and
+additional `cash_balance`/`real_net_worth` edge-case tests closing every mutation-testing gap
+the change introduced (see `docs/plan/surviving-mutants.md`'s "Q-H fix" section). Confirmed via
+full re-run:
+- **Before** (bug): combined run over both fixtures printed `real_net_worth (cash_only) =
+  27121.57 EUR` (`21937.82` broker + `5183.75` bank, the anchor-blind raw sum).
+- **After** (fixed): `python -m fina build --input tests/fixtures --out <dir>` now prints
+  `real_net_worth (cash_only) = 28121.57 EUR` (`21937.82` broker, unchanged + `6183.75` bank,
+  now correctly anchored) — an exact +1000.00 correction, matching the fixture's real
+  unrecorded pre-ledger opening balance to the cent.
+- 100% line+branch coverage maintained on every module; `section1.py` mutation-tested at
+  203/205 (99.0%, 2 documented equivalents, 100% excluding them) and `reconciliation.py` at
+  93/94 (98.9%, 1 documented equivalent, unchanged from WP-7, 100% excluding it) — both above
+  the 95% threshold.
+- Two clean runs over the fixtures produce byte-identical output (G-7/R-1.20), confirmed after
+  this fix.
+
+`WP-9`'s chart needed no code change for this fix (it already consumes whatever series
+`section1.py` produces per R-10.4) and was separately re-derived for Q-G above.
+
+## Q-I — The approved mock loads external fonts; this renderer's own contract is self-contained (found while implementing Q-G)
+
+**Context**: implementing Q-G (porting the approved mock into `render/section1_chart.py`)
+surfaced one genuine conflict between the mock's own design and this module's pre-existing,
+literal contract, flagged per Q-G's own instruction ("flag any case where the mock's design
+actually conflicts with a literal spec rule rather than silently picking one side") rather than
+resolved silently.
+
+**The conflict**: `docs/design/section1-approved-mock.html` loads "IBM Plex Serif/Sans/Mono"
+via `<link rel="stylesheet" href="https://fonts.googleapis.com/...">`. `render/section1_chart.py`'s
+own module docstring (predating this session, present since WP-9) states its output is "a
+standalone HTML/SVG document (**no external assets**)" — a real requirement, not decoration:
+R-10.1's rationale is that the document must be "suitable for a headless browser to screenshot
+or export to PDF," and `tests/browser_support.py` documents, as an established fact about this
+project's own environment, that "Playwright's own browser auto-download is unavailable in this
+environment (the CDN it uses is blocked by network policy)." A chart-rendering step that
+silently depends on reaching `fonts.googleapis.com` at render time would: (a) degrade
+inconsistently between environments with and without that access (a determinism risk, R-1.20,
+in spirit if not in R-1.20's literal own scope, which is about the *pipeline's* determinism
+rather than the renderer specifically), and (b) risk a slow/stalled request in a sandboxed
+render environment rather than a clean, fast failure.
+
+Neither the spec (R-10.1..R-10.5) nor `implementation-plan.md`'s WP-9 entry says anything
+explicit about network access one way or the other — this is a real gap between what the mock
+literally does and what this module's own established contract requires, not a spec rule the
+mock violates.
+
+**Options**:
+(a) Port the font-family *declarations* verbatim (`"IBM Plex Serif"` / `"IBM Plex Sans"` /
+    `"IBM Plex Mono"`, each with the mock's own fallback stack) but omit the `<link>` tag
+    itself — the page reads correctly (via its fallback stack) with or without the real
+    typeface installed, and never depends on network access to render.
+(b) Embed the actual IBM Plex font files as `data:` URIs so the exact typeface always renders,
+    fully offline. Requires fetching and embedding several font-weight files (a few hundred KB
+    combined), not obtainable from within this session's environment for the same reason (b) is
+    blocked in the first place.
+(c) Keep the mock's `<link>` tag as-is and accept that it may fail to load (silently degrading
+    to the fallback stack) in a network-restricted environment.
+
+**Decision (made this session, not deferred)**: (a). It is the option that is both faithful to
+the mock's *typographic intent* (the correct font families are still named, in the same order,
+with the same fallback chain) and consistent with this module's pre-existing, load-bearing
+"no external assets" contract — no correctness risk either way (this is cosmetic, not
+financial), so proceeding without stopping for confirmation does not risk masking an unresolved
+correctness issue (the bar this session's instructions set for proceeding on a new ambiguity).
+(b) is the ideal end state if the real font files are ever made available to a future session,
+but is not achievable here. (c) was rejected as a step backward from this module's own
+established reliability contract for no functional gain over (a).
+
+**Status**: RESOLVED (this session) — implemented as (a) in `render/section1_chart.py`; see
+that module's own docstring for the same explanation, kept close to the code it describes.

@@ -116,6 +116,128 @@ def test_t401_final_broker_cash_is_21937_82() -> None:
     assert real_net_worth(result.entries, latest) == Decimal("21937.82")
 
 
+# ---------------------------------------------------------------------------
+# T-401a/b/c: R-9.1's anchor fix (Q-H regression) -- cash_balance/real_net_worth must anchor
+# to reconciliation.py's own R-8.3 baseline, not sum cash_effect_eur from an assumed zero.
+# ---------------------------------------------------------------------------
+
+
+def test_t401a_final_bank_cash_is_the_anchored_figure_not_the_raw_sum() -> None:
+    """§12.1: the bank fixture's earliest entry declares `balance=7500.00` *after* a
+    `+6500.00` effect -- the account held `1000.00` immediately before the ledger's first row
+    for it, an amount no entry's `cash_effect_eur` will ever sum to. Raw summation from zero
+    gives `5183.75` (§12.1's own `savings_flow` total, by coincidence -- every bank row is
+    savings-eligible); the correct, anchored figure is `6183.75`, matching the fixture's own
+    header balance (R-8.5).
+    """
+    result = bank_xlsx.parse(BANK_XLSX)
+    entries = result.entries
+    latest = max(e.date for e in entries)
+    raw_sum = sum((e.cash_effect_eur for e in entries), start=Decimal("0"))
+    assert raw_sum == Decimal("5183.75")  # the bug's old (wrong) answer, for contrast
+    got = cash_balance(entries, "bank_es", "current_account", latest)
+    assert got == Decimal("6183.75")
+
+
+def test_t401b_combined_run_over_both_fixtures_is_28121_57_not_27121_57() -> None:
+    """The real bug, reproduced exactly as found: running the pipeline over both fixtures
+    together must total `21937.82` (broker, correct -- its ledger starts at account opening)
+    `+ 6183.75` (bank, anchored) `= 28121.57`, never the anchor-blind `27121.57` (`21937.82 +
+    5183.75`) the pre-fix raw-summation formula produced.
+    """
+    bank_result = bank_xlsx.parse(BANK_XLSX)
+    broker_result = broker_csv.parse(BROKER_CSV)
+    entries = [*bank_result.entries, *broker_result.entries]
+    latest = max(e.date for e in entries)
+    got = real_net_worth(entries, latest)
+    assert got == Decimal("28121.57")
+    assert got != Decimal("27121.57")  # the bug's old (wrong) combined answer
+
+
+def test_t401c_account_with_no_declared_balance_still_falls_back_to_raw_summation() -> None:
+    """R-8.4's case (the broker export has no running-balance column at all): `cash_balance`
+    must still fall back to raw summation from zero, unchanged by the R-9.1 anchor fix -- the
+    anchor only ever changes behaviour for an account that actually has a declared balance to
+    anchor to. `reconciliation.anchor_at` returning `None` here is exactly what T-354 already
+    proves also carries the R-8.4 "unverified" warning; this test pins the `cash_balance`-level
+    behaviour that warning is about.
+    """
+    result = broker_csv.parse(BROKER_CSV)
+    entries = result.entries
+    latest = max(e.date for e in entries)
+    raw_sum = sum((e.cash_effect_eur for e in entries if e.account == "cash"), start=Decimal("0"))
+    got = cash_balance(entries, "trade_republic", "cash", latest)
+    assert got == raw_sum  # unchanged fallback behaviour, not the anchored formula
+
+
+def test_cash_balance_anchored_branch_sums_only_matching_later_entries_inclusive_of_as_of() -> None:
+    """Exercises every condition in `cash_balance`'s anchored branch (R-9.1) at once: the
+    anchor's own `declared_balance` plus later `cash_effect_eur` values *added* (not
+    subtracted), restricted to the same `(institution, account)`, dated on or before `as_of`
+    **inclusive** (`<=`, not `<`) -- even when interleaved with entries from a different
+    account, a different institution, and one dated exactly on the `as_of` boundary.
+    """
+    anchor_entry = make_entry(
+        entry_id="anchor",
+        institution="bank_es",
+        account="current_account",
+        date=date(2023, 1, 1),
+        declared_balance=Decimal("100.00"),
+        cash_effect_eur=Decimal("100.00"),
+        source_row=2,
+        file_sequence=2,
+    )
+    later_no_balance = make_entry(
+        entry_id="later1",
+        institution="bank_es",
+        account="current_account",
+        date=date(2023, 1, 2),
+        declared_balance=None,
+        cash_effect_eur=Decimal("-30.00"),
+        source_row=3,
+        file_sequence=3,
+    )
+    on_as_of_boundary = make_entry(
+        entry_id="later2",
+        institution="bank_es",
+        account="current_account",
+        date=date(2023, 1, 3),
+        declared_balance=None,
+        cash_effect_eur=Decimal("10.00"),
+        source_row=4,
+        file_sequence=4,
+    )
+    other_account = make_entry(
+        entry_id="other_acct",
+        institution="bank_es",
+        account="savings_account",
+        date=date(2023, 1, 2),
+        declared_balance=None,
+        cash_effect_eur=Decimal("999999.00"),
+        source_row=5,
+        file_sequence=5,
+    )
+    other_institution = make_entry(
+        entry_id="other_inst",
+        institution="trade_republic",
+        account="current_account",
+        date=date(2023, 1, 2),
+        declared_balance=None,
+        cash_effect_eur=Decimal("888888.00"),
+        source_row=6,
+        file_sequence=6,
+    )
+    entries = [
+        anchor_entry,
+        later_no_balance,
+        on_as_of_boundary,
+        other_account,
+        other_institution,
+    ]
+    got = cash_balance(entries, "bank_es", "current_account", date(2023, 1, 3))
+    assert got == Decimal("80.00")  # 100.00 - 30.00 + 10.00, boundary entry included
+
+
 def test_cash_balance_excludes_other_accounts_of_the_same_institution() -> None:
     cash_entry = make_entry(
         entry_id="c1", account="cash", cash_effect_eur=Decimal("100.00"), date=date(2023, 1, 1)
@@ -424,6 +546,16 @@ def test_real_net_worth_never_includes_a_quantity_price_term() -> None:
         account="positions",
     )
     assert real_net_worth([buy], date(2023, 3, 10)) == Decimal("-500.00")
+
+
+def test_real_net_worth_of_an_empty_ledger_is_decimal_zero_not_int() -> None:
+    """No `(institution, account)` group at all (an empty `entries`) must still return
+    `Decimal("0")`, not the bare `int` `0` a dropped `start=Decimal("0")` default on the
+    outer `sum()` would silently produce -- indistinguishable by `==` but not by `isinstance`.
+    """
+    result = real_net_worth([], date(2023, 1, 1))
+    assert result == Decimal("0")
+    assert isinstance(result, Decimal)
 
 
 def test_section1_period_is_a_frozen_dataclass() -> None:

@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Literal
 
 from fina.models import SAVINGS_FLOW_ELIGIBLE_TYPES, LedgerEntry, MovementType
+from fina.reconciliation import anchor_at, sort_key
 
 #: R-9.3/R-9.4: no price feed exists yet (D1), so `real_net_worth` is cash-only. Every period
 #: this module emits carries this same literal completeness flag until D1 lands.
@@ -44,14 +45,39 @@ class Section1Period:
 def cash_balance(
     entries: Sequence[LedgerEntry], institution: str, account: str, as_of: _date
 ) -> Decimal:
-    """R-9.1: cumulative `cash_effect_eur` for one `(institution, account)`, through `as_of`
-    inclusive.
+    """R-9.1: the account's balance at `as_of`, anchored to `reconciliation.py`'s own R-8.3
+    baseline (via `anchor_at`) when one exists for this `(institution, account)` pair --
+    `anchor.declared_balance` plus every later entry's `cash_effect_eur` through `as_of`.
+    Falls back to raw summation of `cash_effect_eur` from an assumed zero balance -- still
+    unverified per R-8.4 -- only when the pair carries no declared balance at all.
+
+    Before this anchoring, this function summed `cash_effect_eur` from zero unconditionally,
+    which silently dropped any real balance that predated an account's earliest ingested entry
+    (found in the first end-to-end run over both fixtures together -- see R-9.1's rationale in
+    the spec and regression tests T-401a/b/c). `reconciliation.py` computes the correct anchor
+    already (R-8.3); re-deriving it here independently is exactly how the two modules'
+    individually-100%-covered test suites disagreed once combined.
     """
-    return sum(
+    anchor = anchor_at(entries, institution, account, as_of)
+    if anchor is None:
+        return sum(
+            (
+                e.cash_effect_eur
+                for e in entries
+                if e.institution == institution and e.account == account and e.date <= as_of
+            ),
+            start=Decimal("0"),
+        )
+    anchor_entry, anchor_declared_balance = anchor
+    anchor_sort_key = sort_key(anchor_entry)
+    return anchor_declared_balance + sum(
         (
             e.cash_effect_eur
             for e in entries
-            if e.institution == institution and e.account == account and e.date <= as_of
+            if e.institution == institution
+            and e.account == account
+            and e.date <= as_of
+            and sort_key(e) > anchor_sort_key
         ),
         start=Decimal("0"),
     )
@@ -84,13 +110,27 @@ def quantity_held(
 
 
 def real_net_worth(entries: Sequence[LedgerEntry], as_of: _date) -> Decimal:
-    """R-9.3/R-9.4: `Σ cash_balance(·, t)` over every `(institution, account)`, which -- since
-    every entry belongs to exactly one such pair -- is exactly the sum of every entry's own
-    `cash_effect_eur` dated on or before `as_of`. The `quantity_held × close_price` term is
-    D1 (no price feed exists) and is never added; callers MUST treat this figure as
-    cash-only (`completeness == "cash_only"`), never as total net worth (R-9.4).
+    """R-9.3/R-9.4: `Σ cash_balance(·, t)` over every distinct `(institution, account)` pair
+    present in `entries`. This MUST delegate to `cash_balance` per group rather than flatten
+    `entries` into one raw sum: once any group is anchored to a non-zero R-8.3 baseline
+    (R-9.1), summing every entry's own `cash_effect_eur` from zero across *all* groups no
+    longer agrees with summing each group's own anchored balance and adding the groups
+    together (it only ever coincided by construction back when every group summed from zero).
+    Groups are collected via a plain dict (insertion order = first appearance in `entries`,
+    itself deterministic per R-1.20), never a `set`, so iteration order never leaks into the
+    result -- moot here since `Decimal` addition is exact and order-independent, but kept
+    consistent with this module's own convention (`reconciliation._group_by_account`).
+    The `quantity_held × close_price` term is D1 (no price feed exists) and is never added;
+    callers MUST treat this figure as cash-only (`completeness == "cash_only"`), never as
+    total net worth (R-9.4).
     """
-    return sum((e.cash_effect_eur for e in entries if e.date <= as_of), start=Decimal("0"))
+    accounts: dict[tuple[str, str], None] = {}
+    for e in entries:
+        accounts.setdefault((e.institution, e.account), None)
+    return sum(
+        (cash_balance(entries, institution, account, as_of) for institution, account in accounts),
+        start=Decimal("0"),
+    )
 
 
 def contribution(

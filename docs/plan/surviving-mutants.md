@@ -303,3 +303,109 @@ check. No source change was needed; the test's assertion style was the gap. This
 Excluding all 39 documented equivalents (23 pre-existing + 16 new to WP-9: 5 `pipeline.py` + 3
 `cli.py` + 8 `render/section1_chart.py`), the real kill rate across the entire project is
 2343/2343 = 100%.
+
+### Correction: the two `sniff()` equivalents WP-9's own prose already counted but never listed
+
+WP-9's summary above says the `sniff()` additions "added no new survivors beyond each module's
+previously-documented baseline (**9 and 6** respectively)" — but the WP-5/WP-4 tables above list
+only **8** and **5** individually-documented mutants for `bank_xlsx.py`/`broker_csv.py`. The
+missing one from each module is a real survivor that was always there (verified: both mutant IDs
+below appear, unchanged, in this session's from-clean full run) but never got its own table row.
+Fixed here, not carried forward as a gap:
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `fina.adapters.bank_xlsx.x_sniff__mutmut_10` | `_read_header_block_from_sheet(ws, source_file=file_path.name)` → `source_file=None` | **Equivalent.** `sniff()` wraps this call in a bare `try/except Exception: return False`; every field of any exception it might raise (including one carrying `source_file`) is discarded unread, and `source_file` never affects which branch executes or whether an exception is raised at all (grep-verified: every use of `source_file` inside `_find_label_value`/`_parse_header_date`/`_find_movements_header_row`/`_read_header_block_from_sheet` only ever places it into an exception's or a `Warning`'s message/fields, never into a conditional). So `sniff()`'s only observable output (`True`/`False`) is identical for any value of `source_file`, including `None`. |
+| `fina.adapters.broker_csv.x_sniff__mutmut_3` | `decode_text_with_fallback(file_path.read_bytes(), source_file=file_path.name)` → `source_file=None` | **Equivalent**, identical reasoning: `sniff()`'s `try/except Exception: return False` discards `source_file`'s only effect (naming the file inside a raised `ParseError`/emitted `Warning`, never read back by `sniff()` itself). |
+
+With these two now listed, `bank_xlsx.py`'s and `broker_csv.py`'s documented-equivalent counts
+become 9 and 6 respectively, matching what WP-9's own prose already claimed. No behaviour
+changed and no new test was needed — this is a documentation-completeness fix made while
+re-running the full suite for the Q-H/Q-G work below, not a new finding about the code.
+
+## Q-H fix (`reconciliation.py`'s `anchor_at`, `section1.py`'s `cash_balance`/`real_net_worth`)
+
+R-9.1 was rewritten so `cash_balance` anchors to `reconciliation.py`'s own R-8.3 baseline
+(exposed as a new function, `anchor_at`) instead of summing `cash_effect_eur` from an assumed
+zero balance; `real_net_worth` now sums `cash_balance` per `(institution, account)` group
+instead of flattening every entry into one raw sum. See R-9.1 in the spec and T-401a/b/c in the
+test plan for the bug this fixes.
+
+Full run (every module in the project, from a clean `mutmut run`): **2438 mutants generated,
+2396 killed, 41 survived, 1 timeout** (the same recurring `io_utils.x_read_csv_table__mutmut_12`
+hang/kill documented since WP-3). `reconciliation.py` alone: **94 mutants, 93 killed, 1 survived
+= 98.9%** (threshold 95%; the 1 survivor is the same `x_reconcile__mutmut_18` already documented
+under WP-7 — `anchor_at` itself contributed zero new survivors). `section1.py` alone: **205
+mutants, 203 killed, 2 survived = 99.0%** (threshold 95%).
+
+An initial pass surfaced 7 new survivors in `section1.py` from the added/changed code (5 in
+`cash_balance`, 2 in `real_net_worth`). 5 were genuine test gaps, closed with one new
+comprehensive test covering `cash_balance`'s whole anchored branch at once, plus one new test
+for `real_net_worth`'s empty-ledger case; 2 were genuine equivalent mutants, documented below
+rather than chased with an unkillable test:
+
+| Mutant ID | Diff | Resolution |
+|---|---|---|
+| `x_cash_balance__mutmut_25` | `anchor_declared_balance + sum(...)` → `... - sum(...)` | Closed by `test_cash_balance_anchored_branch_sums_only_matching_later_entries_inclusive_of_as_of`, whose post-anchor entries have a non-zero net effect (`-30.00 + 10.00`), so `+`/`-` disagree (`80.00` vs `120.00`). |
+| `x_cash_balance__mutmut_33` | `e.institution == institution` → `!=` in the post-anchor filter | Closed by the same test: an `other_institution` entry with a huge `cash_effect_eur` (`888888.00`) would leak in under the flipped filter. |
+| `x_cash_balance__mutmut_34` | `e.account == account` → `!=` in the post-anchor filter | Closed by the same test: an `other_account` entry (`999999.00`) would leak in under the flipped filter. |
+| `x_cash_balance__mutmut_35` | `e.date <= as_of` → `< as_of` in the post-anchor filter | Closed by the same test: `on_as_of_boundary` is dated exactly on `as_of` and must still be included (`<=`, not `<`). |
+| `x_real_net_worth__mutmut_8` | drops `start=Decimal("0")` on the outer `sum()` over per-account `cash_balance` results | Closed by `test_real_net_worth_of_an_empty_ledger_is_decimal_zero_not_int`: with zero `(institution, account)` groups (an empty `entries`), `sum()` without `start` returns the bare `int` `0`, which `isinstance(result, Decimal)` catches (a single-group case, used elsewhere, cannot distinguish this: `int 0 + Decimal(...)` is already `Decimal`, so the type bug only shows with *zero* groups). |
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `x_cash_balance__mutmut_29` | drops `start=Decimal("0")` on the post-anchor `sum()` that is then *added to* `anchor_declared_balance` | **Equivalent, unlike the otherwise-identical-looking `x_real_net_worth__mutmut_8` above.** This `sum()`'s result is never returned on its own -- it is always added to `anchor_declared_balance`, which is already a `Decimal`. `Decimal.__add__` accepts a bare `int` operand directly (`Decimal("100.00") + 0 == Decimal("100.00")`, and the result's type is `Decimal`, not `int`) for every Python version this project targets. So whether the inner `sum()` starts from `Decimal("0")` or bare `int` `0`, `anchor_declared_balance + sum(...)` is byte-identical in both value and type for every possible input, including an empty generator. (`x_real_net_worth__mutmut_8` differs because *that* `sum()`'s result **is** the function's own return value with nothing added to it, so an empty generator's bare `int 0` propagates all the way out uncoerced.) |
+| `x_real_net_worth__mutmut_4` | `accounts.setdefault((e.institution, e.account), )` — drops the explicit `None` default | **Equivalent.** `dict.setdefault(key)` called with no default argument at all already defaults to `None` — the same value the dropped argument supplied explicitly. Same reasoning as every other dropped-explicit-default survivor already documented in this file (e.g. `Warning(source_row=None)`). |
+
+Excluding the 3 documented equivalents new to this fix (2 in `section1.py` + the reconciliation
+survivor unchanged from WP-7) and the 2 `sniff()` equivalents corrected above, plus every
+already-documented equivalent from every prior section, the real kill rate across the entire
+project is 2396/2396 = 100%.
+
+## Q-G port (`render/section1_chart.py` re-derived from the approved mock)
+
+WP-9's independently-designed chart (built because the approved mock was unreachable at the
+time -- Q-G) was re-derived as a genuine port of `docs/design/section1-approved-mock.html`:
+new colours/typography/spacing, a single shared `.hit-area` (replacing one `circle.hit` per
+point), and a structured tooltip body (replacing a single `data-tooltip` text payload). The
+module grew (103 → 146 statements) as a result.
+
+Full run (every module in the project): **2618 mutants generated, 2576 killed, 42 survived, 0
+timeout**. `render/section1_chart.py` alone: **430 mutants, 421 killed, 9 survived = 97.9%**
+(no explicit threshold for this module, per the test plan -- see WP-9's own note above; still
+run and documented to the same rigor as every threshold-bound module).
+
+An initial pass surfaced 64 survivors from the port. 55 were genuine test gaps -- dropped or
+wrong JSON keys/values in the new `_points_payload` helper, wrong pixel offsets in the new
+`_grid_line_svg`/`_x_label_svg`/end-label positioning, a dropped tooltip-rows join, an exact-
+text gap in the new close-button/tooltip markup, an off-by-one in the "always show the last
+month" index check, a wrong `_grid_ticks` span operator (`+` vs `-`, indistinguishable when
+`min_value == 0`, the same class of bug R-9.1's own Q-H fix was about), and a `_thousands_label`
+divisor test too coarse to notice `/1000` vs `/1001` -- all closed with new or strengthened
+tests in `test_section1_chart.py` (see that file's own docstrings for each). The remaining 9
+are genuine equivalents:
+
+| Mutant ID | Diff | Justification |
+|---|---|---|
+| `x__padded_range__mutmut_10` | `pad = (max - min) * 0.1 or 1.0` → `... or 2.0` | **Equivalent**, same reasoning as `x__build_points__mutmut_13` documented under WP-9 above (this function was extracted from `_build_points`'s own identical line): the fallback only activates when `max_value == min_value`, at which point `_y_scale`'s `fraction = (value - min_value) / span` reduces to `pad / (2 * pad) = 0.5` regardless of `pad`'s magnitude. |
+| `x__band_polygons__mutmut_4` | `zip(points, points[1:], strict=False)` → `strict=None` | **Equivalent** — the already-documented `zip(..., strict=...)` pattern from WP-9: `strict` is only checked for truthiness, and `False`/`None` are both falsy. |
+| `x__band_polygons__mutmut_7` | drops the `strict=` keyword entirely | **Equivalent**, same reasoning — `zip`'s own default is `strict=False`. |
+| `x__points_payload__mutmut_32` | `zip(rows, points, strict=True)` → `strict=None` | **Equivalent.** `points` is built by `_build_points(rows)` as exactly one `_Point` per input row (a 1:1 comprehension over `enumerate(rows)`), so `len(points) == len(rows)` always holds by construction — `strict=True` can never actually raise here. |
+| `x__points_payload__mutmut_35` | drops the `strict=` keyword entirely | **Equivalent**, same reasoning — lengths are provably always equal. |
+| `x__points_payload__mutmut_36` | `strict=True` → `strict=False` | **Equivalent**, same reasoning. |
+| `x_render_section1_chart__mutmut_39` | `zip(rows, points, strict=True)` → `strict=None` (for `row_points`, feeding the x-axis labels) | **Equivalent**, identical reasoning — `points` is `_build_points(rows)`, always the same length as `rows`. |
+| `x_render_section1_chart__mutmut_42` | drops the `strict=` keyword entirely | **Equivalent**, same reasoning. |
+| `x_render_section1_chart__mutmut_43` | `strict=True` → `strict=False` | **Equivalent**, same reasoning. |
+
+Excluding these 9 documented equivalents, `render/section1_chart.py`'s real kill rate is
+421/421 = 100%. This full-project run's 42 survivors, by module (matching every count already
+documented above, section by section: `bank_xlsx.py` 9, `broker_csv.py` 6, `io_utils.py` 4,
+`models.py` 2, `money.py` 1, `pipeline.py` 5, `cli.py` 3, `reconciliation.py` 1, `section1.py`
+2, `render/section1_chart.py` 9 — the WP-9 original render module's own 8 equivalents no
+longer apply, superseded by this port's 9), sum to exactly the 42 this run reports as
+`survived`. Excluding all of them, the real kill rate across the entire project is
+2576/2576 = 100%.
+
+`section1.py` and `reconciliation.py`'s own survivors (2 and 1 respectively, both from the
+Q-H fix above) are unchanged by this port, confirming the chart re-derivation touched no
+money-path module.

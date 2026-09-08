@@ -250,6 +250,10 @@ contain); code, comments, test names and docs are English.
 | T-359 | Three-row same-`date`-**and**-same-`value_date` tie (regression fixture modeled on the real production case in R-1.22's rationale): only `file_sequence` (not `value_date`) resolves the order; asserts the exact three declared balances in reverse-physical-row order | R-1.22, R-7.5a |
 | T-360 | Broker adapter: `file_sequence == source_row` for every entry (R-6.1a) | R-6.1a |
 | T-361 | Bank adapter: `file_sequence == -source_row` for every entry (R-7.5a) | R-7.5a |
+| T-362 | `anchor_at` returns the entry with the latest `sort_key` among all declared-balance entries at or before `as_of` (bank fixture: `as_of` on the ledger's last date returns the last declared-balance row) | R-8.3, R-9.1 |
+| T-362b | `anchor_at` with `as_of` strictly between two declared-balance rows returns the earlier one, not the later (out-of-range) one | R-8.3, R-9.1 |
+| T-362c | `anchor_at` with `as_of` before any declared-balance entry returns `None` | R-8.3, R-9.1 |
+| T-363 | `anchor_at` returns `None` for an `(institution, account)` with no declared balance at all (broker fixture, both sub-accounts) | R-8.4, R-9.1 |
 
 ### 7.3 Section 1 (§9)
 
@@ -433,10 +437,10 @@ packages land; a work package is not done until its rules appear here.
 | R-7.16 | T-221 |
 | R-8.1 | T-350 |
 | R-8.2 | T-350, T-351, T-352, T-357, T-358 |
-| R-8.3 | T-353 |
-| R-8.4 | T-354, T-355 |
+| R-8.3 | T-353, T-362, T-362b, T-362c |
+| R-8.4 | T-354, T-355, T-363, T-401c |
 | R-8.5 | T-356 |
-| R-9.1 | T-400, T-401a, T-401b, T-401c, T-602 |
+| R-9.1 | T-400, T-401a, T-401b, T-401c, T-362, T-362b, T-362c, T-363, T-602 |
 | R-9.2 | T-402 |
 | R-9.3 | T-414 (cash term only while D1 stands) |
 | R-9.4 | T-414, T-704 |
