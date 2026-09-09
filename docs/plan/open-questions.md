@@ -637,3 +637,38 @@ real usability problem of not re-picking a year of exports every month. Not impl
 awaiting a decision — this also determines how much of the mobile work package needs to
 design an on-device storage/backup story, so it should be resolved before that work package is
 written, not during it.
+
+## Q-N — When to move from print-to-PDF to a client-side JS PDF library (found during
+mobile-PDF-export research)
+
+**Context**: `docs/plan/mobile-pdf-export.md`, researching how the two-page report gets
+exported to PDF once the app runs client-side via Pyodide with no server and no headless
+browser available. Two real options exist: (1) the browser's own `window.print()` +
+`@media print` stylesheet, which needs no new dependency but hands the user the OS print
+dialog and a manual "Save as PDF" step; (2) a client-side JS PDF-generation library (jsPDF +
+svg2pdf.js, or pdf-lib), which gives a real one-tap "Download PDF" button but adds a second
+heavy dependency on top of Pyodide's own real load-time cost, and — for `pdf-lib` specifically
+— a second chart-drawing implementation to keep in sync with `render/section1_chart.py`
+forever.
+
+**Ambiguity**: this is a genuine product/UX trade-off, not a technical one — how much the
+manual print-dialog friction actually bothers the project owner in monthly practice, weighed
+against how much dependency weight and long-term maintenance they are willing to accept for a
+one-tap button, is a threshold only the person doing the review can set. It cannot be resolved
+by more research; it can only be observed by using option (1) for a while, or decided up front
+by the owner's own stated preference.
+
+**Options**:
+1. Build option (1) now, revisit option (2) only if the print-dialog friction proves real
+   after using it for a few monthly review cycles.
+2. Build option (1) now, and schedule a fixed revisit point regardless of how it feels (e.g.
+   "after 3 months of monthly reports"), so the decision doesn't depend on remembering to
+   raise it later.
+3. Skip straight to option (2) now, accepting the added dependency weight and (if `pdf-lib` is
+   chosen) the duplicated chart-drawing logic, to get the one-tap experience from the start.
+
+**Recommendation**: (1), per `docs/plan/mobile-pdf-export.md` §3 — it is the smaller,
+reversible step, adds no dependency to an app that already has a real load-time cost to
+manage, and reuses this project's existing Playwright-based verification of the same Chromium
+print-to-PDF pipeline a real "Save as PDF" click would hit. Not implemented; awaiting the
+project owner's confirmation of (1), or a stated preference for (2) or (3) instead.
