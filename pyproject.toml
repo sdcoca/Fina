@@ -52,7 +52,8 @@ exclude_lines = [
 [tool.mypy]
 strict = true
 python_version = "3.11"
-files = ["src/fina"]
+files = ["src/fina", "web/py"]
+mypy_path = ["src"]
 warn_unused_configs = true
 disallow_any_explicit = false
 
