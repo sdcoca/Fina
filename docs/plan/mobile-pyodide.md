@@ -331,3 +331,84 @@ test-plan.md`'s gates (§1, G-1..G-9) are unaffected in content, scope, or where
 Open product decision raised by this research, logged separately: Q-M in
 `docs/plan/open-questions.md` (cross-session persistence of source files / ledger state on
 the device).
+
+---
+
+## 5. WP-11 addendum (2026-09-09) — pinned version, actual bundle size, and the
+   COOP/COEP determination
+
+This section replaces §0.1's caveat with confirmed facts: `pyodide.org` and the GitHub API
+were unreachable from this session's egress proxy (both return `403`), but `github.com`'s own
+`/releases/download/...` asset URLs, `raw.githubusercontent.com`, and PyPI (`pypi.org` /
+`files.pythonhosted.org`, both proxy-exempt in this environment) were reachable directly, so
+the pin below is a first-hand fetch, not a search-engine snippet.
+
+### 5.1 §0.1's guess was correct: Pyodide now versions by embedded CPython
+
+Confirmed by reading `pyodide/pyodide`'s own `docs/project/changelog.md` at tag `314.0.6`:
+current stable is **`314.0.6`** (`npm view pyodide dist-tags.latest` agrees), and its
+`pyodide-lock.json` records `"python": "3.14.2"`. The version string *is* the embedded
+CPython's `major*100+minor` — `314` → CPython 3.14 — exactly the mechanism §0.1 guessed at
+but flagged unconfirmed. `fina`'s own `requires-python = ">=3.11"` and the wheels it depends
+on (`openpyxl`, `et_xmlfile`) are all pure-Python / `py3-none-any`, so running under 3.14
+inside Pyodide rather than 3.11 raises no compatibility question — nothing in `fina` or its
+two dependencies is tied to a specific minor version.
+
+### 5.2 Pinned artifact and actual size — well inside the "tens of MB" target
+
+Pinned: `pyodide-core-314.0.6.tar.bz2` (the GitHub release's dedicated **core** asset — not
+the ~200+ MB `pyodide-314.0.6.tar.bz2` full bundle that bakes in every cross-compiled
+scientific package). Downloaded, sha256-verified, and extracted by `web/vendor/build.py`
+(pins recorded in `web/vendor/CHECKSUMS.txt`):
+
+- Download: 6.7 MB compressed.
+- Extracted (`web/vendor/pyodide/`): **15 MB** — `pyodide.asm.wasm` (9.2 MB) +
+  `python_stdlib.zip` (2.5 MB) + `python.exe`/glue/lockfile/type-defs (the remainder).
+- Plus `web/vendor/wheels/` (openpyxl + et_xmlfile + micropip + fina's own wheel): 436 KB.
+- **Total `web/vendor/`: ~15 MB** — an order of magnitude under the "tens of MB, not
+  hundreds" ceiling, and close to the 6.4 MB "first load" baseline §2.1 quoted from Pyodide's
+  own roadmap page (that figure was the *compressed* download; 15 MB extracted is consistent
+  with it once decompressed).
+
+### 5.3 COOP/COEP / `SharedArrayBuffer` determination — **not required**, confirmed
+   two ways
+
+**Finding: the pinned Pyodide core build does *not* require `SharedArrayBuffer` or
+COOP/COEP response headers for anything WP-11..WP-13 need** (loading the runtime, importing
+the stdlib, `micropip.install()`, running `fina`'s pipeline). This is a hosting
+**non-requirement** for WP-16 — the static file/service-worker host does not need to send
+`Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` headers.
+
+Evidence, not assertion:
+
+1. **Documentation.** `pyodide/pyodide`'s own `docs/usage/wasm-constraints.md` names the
+   *only* place cross-origin isolation matters: streaming-download of files, and only when
+   Pyodide is also running inside a Web Worker. Everything else — including package loading
+   and `micropip.install()` — falls back to a non-streaming path with no isolation
+   requirement. Separately, the changelog's only other `SharedArrayBuffer` mention is the
+   opt-in `pyodide.setInterruptBuffer()` API (an optional worker-interrupt mechanism `fina`'s
+   bridge has no reason to use) — not something `loadPyodide()` turns on by default.
+2. **A real, passing, offline test** (`tests/test_pyodide_vendor.py`,
+   `test_vendored_pyodide_installs_wheels_fully_offline`): a local `http.server` — which sends
+   *no* COOP/COEP headers at all — serves the vendored runtime and wheels to a real headless
+   Chromium with every non-local request aborted. The test asserts
+   `self.crossOriginIsolated === false` both before and after `loadPyodide()`, and still
+   `loadPyodide()` → `pyodide.loadPackage()` (for `micropip`) →
+   `micropip.install([...], deps=False)` (for `openpyxl`/`et_xmlfile`/`fina`) →
+   `import fina, openpyxl` all succeed. This passed in this session (see the commit's own
+   verification run); it is the strongest form of evidence this document uses anywhere —
+   an actual outcome, not a read of the JS source.
+
+### 5.4 What `web/vendor/build.py` actually vendors, and the one intentional wrinkle
+
+`web/vendor/build.py` downloads and sha256-pins: the Pyodide core tarball above; `openpyxl`
+3.1.5 and `et_xmlfile` 2.0.0 (both satisfy `pyproject.toml`'s `openpyxl>=3.1,<4`, both plain
+PyPI wheels); `micropip` 0.11.1 (the version this Pyodide release's `pyodide-lock.json` itself
+names) also from plain PyPI; and builds `fina`'s own wheel from this checkout via
+`python -m build`. One wrinkle worth recording: Pyodide's own build re-packages pure-Python
+"packages" before shipping them (fresh zip timestamps/metadata), so the sha256 its
+`pyodide-lock.json` records for `micropip` does not match the sha256 of the plain PyPI wheel
+of the same version — both contain the same code. `build.py`'s module docstring and
+`test_pyodide_vendor.py`'s comments both call this out; the smoke test loads the vendored
+`micropip` wheel with `checkIntegrity: false` for exactly this reason, and only ever presents
+it as an ordinary local wheel, never as "the" lock-verified package.
