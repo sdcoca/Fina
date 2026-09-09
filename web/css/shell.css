@@ -336,7 +336,19 @@ h2 {
   border: 0;
   border-radius: 8px;
   background: var(--shell-surface);
-  transition: height 0.12s ease;
+  transition: height 0.12s ease, opacity 0.12s ease;
+  /* Starts invisible (see app.js's showChart/message handler): the fallback aspect-ratio box
+   * above is correctly proportioned for the chart's own SVG, but the full document (title,
+   * subtitle, legend) is taller than that box until the real-height postMessage arrives --
+   * on a slow device that round trip has been measured up to ~1s, long enough for a real user
+   * to see a moment of clipped content otherwise. The box still reserves its layout space
+   * (opacity, not display:none/visibility:hidden), so nothing around it jumps when it appears.
+   */
+  opacity: 0;
+}
+
+.chart-frame--sized {
+  opacity: 1;
 }
 
 @media (min-width: 700px) {

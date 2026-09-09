@@ -88,6 +88,11 @@ function _augmentChartHtmlWithHeightReporting(chartHtml) {
   return chartHtml + _HEIGHT_REPORTER_SCRIPT;
 }
 
+// Guards the fallback reveal below against firing for a chart that has since been cleared or
+// replaced by a newer one (a stale timeout must never reveal/resize the *current* iframe just
+// because it happens to fire after a later showChart()/clearChart() call).
+let _chartRevealToken = 0;
+
 window.addEventListener("message", (event) => {
   if (event.source !== chartFrame.contentWindow) {
     return;
@@ -95,18 +100,40 @@ window.addEventListener("message", (event) => {
   const data = event.data;
   if (data && typeof data.finaChartHeight === "number" && data.finaChartHeight > 0) {
     chartFrame.style.height = `${data.finaChartHeight}px`;
+    // Only reveal the iframe once its real height is known -- until then the fallback
+    // aspect-ratio box (shell.css's `.chart-frame`) is correctly proportioned for the SVG
+    // alone but too short for the full document (title/subtitle/legend), so showing it
+    // earlier would flash clipped content. See shell.css's own comment on `.chart-frame`.
+    chartFrame.classList.add("chart-frame--sized");
   }
 });
 
 function clearChart() {
+  _chartRevealToken += 1;
   chartFrame.removeAttribute("srcdoc");
   chartFrame.style.height = "";
+  chartFrame.classList.remove("chart-frame--sized");
   chartSection.hidden = true;
 }
 
+// Bounds the worst case if the height-reporting message is ever delayed past this or never
+// arrives at all (a dropped/delayed `postMessage` under real-device memory/CPU pressure is not
+// provable never to happen) -- reveals the iframe at whatever height it currently has (the
+// correct one if the message did arrive in time, the aspect-ratio fallback otherwise) rather
+// than leaving it permanently invisible. A brief, bounded flash of the fallback ratio on a rare
+// slow device is a strictly better failure mode than a chart that silently never appears.
+const _REVEAL_FALLBACK_MS = 1500;
+
 function showChart(chartHtml) {
+  chartFrame.classList.remove("chart-frame--sized");
   chartFrame.srcdoc = _augmentChartHtmlWithHeightReporting(chartHtml);
   chartSection.hidden = false;
+  const token = ++_chartRevealToken;
+  setTimeout(() => {
+    if (_chartRevealToken === token) {
+      chartFrame.classList.add("chart-frame--sized");
+    }
+  }, _REVEAL_FALLBACK_MS);
 }
 
 // ---------------------------------------------------------------------------
