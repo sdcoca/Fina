@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- PWA-1.2b: two theme-color <meta> tags tracking the same --shell-page tokens shell.css
+     defines under prefers-color-scheme, so the browser chrome/splash colour never disagrees
+     with the page's own rendered background. -->
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<title>Fina</title>
+<link rel="stylesheet" href="/css/shell.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>Fina</h1>
+  <p class="app-tagline">Wealth and tax tracking, computed on your device.</p>
+</header>
+
+<main>
+  <section class="import-section" aria-labelledby="import-heading">
+    <h2 id="import-heading">Import statements</h2>
+    <!-- PWA-3.3a: the supported formats are named here, in the same place the Import action
+         lives, before the user ever tries a file -- not only after a rejection. -->
+    <p class="supported-formats">
+      Supported today: a Trade Republic CSV export, or a Spanish bank XLSX export.
+    </p>
+
+    <div class="import-controls">
+      <label for="file-input" class="file-input-label">Choose files</label>
+      <input type="file" id="file-input" accept=".csv,.xlsx" multiple>
+    </div>
+
+    <p id="busy-indicator" class="busy-indicator" role="status" aria-live="polite" hidden>
+      Processing…
+    </p>
+
+    <!-- PWA-3.3: rejected files are surfaced individually here; a rejection never removes an
+         already-recognized file from the same pick, and never aborts the run for the rest. -->
+    <div id="rejected-files" class="rejected-files" role="alert" hidden></div>
+  </section>
+
+  <section id="error-section" class="error-section" role="alert" hidden>
+    <h2>Could not compute a report</h2>
+    <p id="error-message"></p>
+  </section>
+
+  <section id="status-section" class="status-section" hidden>
+    <div id="warnings" class="warnings" hidden></div>
+    <div id="summary" class="summary" hidden></div>
+  </section>
+
+  <!-- PWA-5.2(a): the chart is embedded via a sandboxed <iframe srcdoc="...">, never
+       innerHTML -- innerHTML would collide with the chart document's own :root CSS custom
+       properties and would silently drop its <script> (the tooltip stops working). -->
+  <section id="chart-section" class="chart-section" hidden>
+    <iframe
+      id="chart-frame"
+      class="chart-frame"
+      title="Wealth bridge chart"
+      sandbox="allow-scripts"
+    ></iframe>
+  </section>
+</main>
+
+<!-- Pyodide's own loader is not an ES module -- it must be a classic script, loaded before
+     app.js (see web/js/pyodide-bridge.js's own comment about this). -->
+<script src="/vendor/pyodide/pyodide.js"></script>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

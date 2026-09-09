@@ -1,0 +1,262 @@
+/* web/css/shell.css -- WP-13 PWA shell.
+ *
+ * Mobile-first (CLAUDE.md rule 19): every rule below is written for a ~390px viewport as the
+ * baseline layout, not as a shrunk-down desktop page. No rule in this file uses
+ * `backdrop-filter` or any other blur-based translucency (CLAUDE.md rule 20) -- every
+ * translucent surface below (the rejected/warning/error panels) uses plain alpha (rgba)
+ * against the page background instead, which works identically on every rendering engine.
+ * `tests/test_pwa_shell.py::test_no_backdrop_filter_in_shell_css` greps this file (and every
+ * other web/css/*.css file) to keep that true automatically.
+ *
+ * Palette: the token *values* below are a literal reuse of `src/fina/render/section1_chart.py`
+ * own `--page`/`--surface`/`--ink`/`--line-real` tokens (see that module's <style> block), so
+ * the shell's own chrome and the chart it hosts read as one coherent app even though they are
+ * two separate documents (the shell page and the chart's own sandboxed iframe) that never
+ * share a stylesheet and therefore have no custom-property collision to avoid in the first
+ * place -- this is a *coherence* choice, not a technical necessity. Token names are prefixed
+ * `--shell-` specifically so a reader never mistakes them for the chart's own `--page`/`--ink`
+ * (which live in a wholly different document and could never collide with these regardless).
+ */
+
+:root {
+  --shell-page: #f6f5f1;
+  --shell-surface: #fcfcfb;
+  --shell-ink: #14140f;
+  --shell-ink-2: #55534a;
+  --shell-muted: #8b897f;
+  --shell-border: rgba(11, 11, 11, 0.12);
+  --shell-accent: #2a78d6;
+  --shell-accent-bg: rgba(42, 120, 214, 0.12);
+  --shell-danger: #e34948;
+  --shell-danger-bg: rgba(227, 73, 72, 0.12);
+  --shell-warning: #9a6b12;
+  --shell-warning-bg: rgba(201, 145, 33, 0.16);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --shell-page: #0d0d0d;
+    --shell-surface: #1a1a19;
+    --shell-ink: #ffffff;
+    --shell-ink-2: #c3c2b7;
+    --shell-muted: #898781;
+    --shell-border: rgba(255, 255, 255, 0.14);
+    --shell-accent: #3987e5;
+    --shell-accent-bg: rgba(57, 135, 229, 0.16);
+    --shell-danger: #e66767;
+    --shell-danger-bg: rgba(230, 103, 103, 0.18);
+    --shell-warning: #d9a53f;
+    --shell-warning-bg: rgba(217, 165, 63, 0.18);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--shell-page);
+  color: var(--shell-ink);
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.4;
+  /* Side gutter kept at every width -- never zeroed by a later shorthand rule. */
+  padding: 16px 16px 32px;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.app-header {
+  max-width: 640px;
+  margin: 0 auto 4px;
+}
+
+.app-header h1 {
+  font-size: 22px;
+  margin: 0 0 2px;
+}
+
+.app-tagline {
+  margin: 0;
+  color: var(--shell-ink-2);
+  font-size: 13.5px;
+}
+
+section {
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.supported-formats {
+  margin: 0 0 14px;
+  color: var(--shell-ink-2);
+  font-size: 13.5px;
+}
+
+.import-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-input-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--shell-ink-2);
+}
+
+#file-input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  font-size: 14px;
+  color: var(--shell-ink);
+  padding: 4px 0;
+}
+
+#file-input:disabled {
+  opacity: 0.6;
+}
+
+.busy-indicator {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--shell-ink-2);
+}
+
+.rejected-files {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--shell-danger-bg);
+  border: 1px solid var(--shell-border);
+  font-size: 13.5px;
+}
+
+.rejected-heading {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--shell-danger);
+}
+
+.rejected-files ul,
+.warnings ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rejected-files li {
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.error-section {
+  background: var(--shell-danger-bg);
+  border-color: var(--shell-danger);
+}
+
+.error-section h2 {
+  color: var(--shell-danger);
+}
+
+#error-message {
+  margin: 0;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.status-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.warnings {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--shell-warning-bg);
+  border: 1px solid var(--shell-border);
+  font-size: 13.5px;
+}
+
+.warnings-heading {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--shell-warning);
+}
+
+.summary {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+}
+
+.summary-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.summary-list dt {
+  color: var(--shell-ink-2);
+  font-weight: 500;
+}
+
+.summary-list dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-section {
+  padding: 8px;
+}
+
+/* PWA-5.3: a fixed-aspect-ratio first-paint fallback (960x420, the chart SVG's own viewBox
+ * ratio) shown until the chart document's own height-reporting script (see app.js) posts its
+ * real rendered height back -- at which point app.js sets an inline `height` that overrides
+ * this ratio (an explicit height always wins over `aspect-ratio` per spec once both are
+ * present). This two-step sizing exists specifically so the tooltip, which can render taller
+ * than the base 420px-tall chart, is never clipped by a height frozen at the base chart's own
+ * ratio alone -- verified by rendering, not reasoned about here (see tests/test_pwa_shell.py).
+ */
+.chart-frame {
+  display: block;
+  width: 100%;
+  aspect-ratio: 960 / 420;
+  border: 0;
+  border-radius: 8px;
+  background: var(--shell-surface);
+  transition: height 0.12s ease;
+}
+
+@media (min-width: 700px) {
+  main,
+  .app-header {
+    max-width: 720px;
+  }
+}

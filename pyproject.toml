@@ -82,9 +82,14 @@ source_paths = ["src/fina"]
 # browser per test to verify *rendering* behaviour (screenshots, PDF export), which every
 # mutant re-running the whole suite would make prohibitively slow for no unique Python line
 # coverage -- section1_chart.py's own code is fully covered by test_section1_chart.py alone.
+# test_pwa_shell.py (WP-13) is excluded for the identical reason: it drives a real headless
+# browser through the whole PWA shell (Pyodide cold boot included) per test case, and every
+# `src/fina` line it exercises (run_pipeline, round_half_up, ...) is already fully covered by
+# far faster non-browser suites (test_pipeline.py, test_money.py, ...).
 pytest_add_cli_args_test_selection = [
     "tests",
     "--ignore=tests/test_gates_meta.py",
     "--ignore=tests/test_render_browser.py",
+    "--ignore=tests/test_pwa_shell.py",
 ]
 runner = "python -m pytest -x -q"
