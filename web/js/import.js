@@ -11,6 +11,12 @@
 //
 // This module owns no DOM: it is pure partitioning logic over File objects, so it can be
 // exercised without a document (and so `app.js` alone decides how rejections are rendered).
+//
+// WP-15 addition: each recognized entry now carries the adapter name `sniffFile()` returned
+// alongside the `File` itself (`{file, adapter}`, not a bare `File`) -- `app.js` needs this to
+// populate `storage.js`'s `rawFiles.recognizedAs` field without re-sniffing the same bytes a
+// second time. The *rejection* contract (still rejects unrecognized files individually, one bad
+// file never drops a recognized sibling) is unchanged.
 
 /**
  * The rejection message shown for a file that matched no known adapter shape, per WP-13's
@@ -23,13 +29,15 @@ export const UNRECOGNIZED_FILE_MESSAGE =
 
 /**
  * @typedef {{file: File, reason: string}} RejectedFile
- * @typedef {{recognized: File[], rejected: RejectedFile[]}} Partition
+ * @typedef {{file: File, adapter: string}} RecognizedFile
+ * @typedef {{recognized: RecognizedFile[], rejected: RejectedFile[]}} Partition
  */
 
 /**
  * Sniffs every file in `fileList` individually (via `sniffFile`, WP-12) and partitions them
- * into files that matched a known adapter shape ("recognized", handed to `runBuild()` by the
- * caller) and files that did not ("rejected", never handed to `runBuild()` at all).
+ * into files that matched a known adapter shape ("recognized", each paired with the adapter
+ * name that matched -- handed to the caller for both `runBuild()` and `storage.js.addRawFile()`)
+ * and files that did not ("rejected", never handed to `runBuild()` at all).
  *
  * `sniffFile()` never throws for an unrecognized file (that is its whole contract -- it
  * returns `null`), but this still guards each call defensively: a file this function cannot
@@ -47,7 +55,7 @@ export async function sniffAndPartition(fileList, sniffFile) {
   }
 
   const files = Array.from(fileList);
-  /** @type {File[]} */
+  /** @type {RecognizedFile[]} */
   const recognized = [];
   /** @type {RejectedFile[]} */
   const rejected = [];
@@ -60,7 +68,7 @@ export async function sniffAndPartition(fileList, sniffFile) {
       adapter = null;
     }
     if (adapter) {
-      recognized.push(file);
+      recognized.push({ file, adapter });
     } else {
       rejected.push({ file, reason: UNRECOGNIZED_FILE_MESSAGE });
     }

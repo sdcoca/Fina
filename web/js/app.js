@@ -7,13 +7,25 @@
 // every figure `result.summary` carries is already a rounded display string from
 // `web/py/bridge.py` and is only ever concatenated here, never re-parsed/rounded as a JS float
 // (CLAUDE.md rule 9's intent, extended to this layer).
+//
+// WP-15 (Q-M, "persistent library"): every file the app has ever recognized and imported is
+// kept in `storage.js`'s `rawFiles` store across sessions, deduplicated by content hash. A run's
+// input is now "every stored file marked active" (`storage.getActiveFiles()`), not only what was
+// just picked in this browser session -- picking new files adds to that persistent set rather
+// than replacing it. `app.js` alone still decides success/failure (WP-13's established pattern):
+// `storage.js` never inspects a `bridge.run()` result itself, it only ever gets told, after the
+// fact, "here is a record to cache" (`setRunCache`) or nothing at all on failure -- a failed run
+// leaves whatever `runCache` record already existed completely untouched (§2.4.2).
 
 import { sniffAndPartition } from "./import.js";
 import { runBuild } from "./pyodide-bridge.js";
+import * as storage from "./storage.js";
 
 const fileInput = document.getElementById("file-input");
 const busyIndicator = document.getElementById("busy-indicator");
 const rejectedFilesEl = document.getElementById("rejected-files");
+const storedFilesEmptyEl = document.getElementById("stored-files-empty");
+const storedFilesListEl = document.getElementById("stored-files-list");
 const errorSection = document.getElementById("error-section");
 const errorMessageEl = document.getElementById("error-message");
 const statusSection = document.getElementById("status-section");
@@ -181,6 +193,194 @@ function renderSummary(summary) {
   summaryEl.appendChild(dl);
 }
 
+// ---------------------------------------------------------------------------
+// WP-15: the stored-files (rawFiles) active/inactive checklist.
+// ---------------------------------------------------------------------------
+
+function _formatSize(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Renders the full stored-files checklist from `files` (as returned by
+ * `storage.listRawFiles()`), sorted by filename for a stable, predictable display order --
+ * `getAll()`'s own order is by content-hash key, which has no meaningful reading order.
+ * Each row's checkbox is the *only* control that ever changes `rawFiles.active`
+ * (`storage.setActive`, via `onToggleActive`).
+ */
+function renderStoredFiles(files) {
+  storedFilesListEl.replaceChildren();
+  if (files.length === 0) {
+    storedFilesEmptyEl.hidden = false;
+    storedFilesListEl.hidden = true;
+    return;
+  }
+  storedFilesEmptyEl.hidden = true;
+  storedFilesListEl.hidden = false;
+
+  const sorted = [...files].sort((a, b) => a.filename.localeCompare(b.filename));
+  for (const file of sorted) {
+    const li = document.createElement("li");
+    li.dataset.fileId = file.id;
+    if (!file.active) {
+      li.classList.add("stored-file-inactive");
+    }
+
+    const label = document.createElement("label");
+    label.className = "stored-file-row";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "stored-file-checkbox";
+    checkbox.checked = file.active;
+    checkbox.setAttribute("aria-label", `Include ${file.filename} in the next run`);
+    checkbox.addEventListener("change", () => {
+      onToggleActive(file.id, checkbox.checked).catch((err) => {
+        showError(err && err.message ? err.message : String(err));
+      });
+    });
+
+    const info = document.createElement("div");
+    info.className = "stored-file-info";
+    const name = document.createElement("span");
+    name.className = "stored-file-name";
+    name.textContent = file.filename;
+    const meta = document.createElement("span");
+    meta.className = "stored-file-meta";
+    meta.textContent = `${file.recognizedAs ?? "unknown"} · ${_formatSize(file.size)}`;
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    label.appendChild(checkbox);
+    label.appendChild(info);
+    li.appendChild(label);
+    storedFilesListEl.appendChild(li);
+  }
+}
+
+async function refreshStoredFilesChecklist() {
+  const files = await storage.listRawFiles();
+  renderStoredFiles(files);
+  return files;
+}
+
+function _sortedIds(list) {
+  return [...list].sort();
+}
+
+function _idsEqual(a, b) {
+  const sa = _sortedIds(a);
+  const sb = _sortedIds(b);
+  return sa.length === sb.length && sa.every((v, i) => v === sb[i]);
+}
+
+/**
+ * On startup, if a cached run (`storage.getRunCache()`) exists whose `activeIds` exactly match
+ * the currently-active stored files, renders it directly -- no Pyodide boot needed at all. This
+ * is the persistence payoff: reopening the app shows the prior result immediately, entirely
+ * from `storage.js`, independent of whether/when Pyodide finishes loading.
+ *
+ * If the cache is missing or stale (the active set has changed since it was computed -- e.g.
+ * after a backup restore), this deliberately does *not* auto-trigger a fresh Pyodide-backed run
+ * on load (that would pay the boot cost on every single open, defeating the point of caching);
+ * the shell instead stays in its empty state until the user picks a file or toggles a checkbox,
+ * either of which always recomputes over the current active set.
+ */
+async function displayCachedResultIfFresh(files) {
+  const cache = await storage.getRunCache();
+  if (!cache) {
+    return;
+  }
+  const activeIds = files.filter((f) => f.active).map((f) => f.id);
+  if (activeIds.length === 0 || !_idsEqual(activeIds, cache.activeIds || [])) {
+    return;
+  }
+  renderWarnings(cache.warnings);
+  renderSummary(cache.summary);
+  statusSection.hidden = false;
+  showChart(cache.chartHtml);
+}
+
+/**
+ * Runs the pipeline over `storage.getActiveFiles()` -- the full persistent active set, not only
+ * whatever was just picked -- and renders the result. On success, caches it (`setRunCache`); on
+ * failure, `storage.js`'s `runCache` is left completely untouched (§2.4.2) -- this function
+ * simply never calls `setRunCache`/`clearRunCache` on that path.
+ */
+async function runOverActiveSet() {
+  hideError();
+  clearChart();
+  statusSection.hidden = true;
+
+  try {
+    const activeRecords = await storage.getActiveFiles();
+    if (activeRecords.length === 0) {
+      // No active files at all (everything toggled off, or nothing stored yet) -- nothing
+      // meaningful to run; leave the empty state showing rather than calling runBuild([]).
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const files = activeRecords.map((r) => new File([r.bytes], r.filename));
+      const result = await runBuild(files);
+      if (!result.ok) {
+        // R-11.4 mirrored client-side, and WP-15/PWA-2.4.2 on top of it: a failing run must
+        // never leave a partial or stale chart/summary on screen (handled above by the
+        // unconditional clearChart()/statusSection.hidden=true before this call) -- and must
+        // never touch the persisted runCache record. No storage.setRunCache/clearRunCache call
+        // happens anywhere on this branch, by construction: whatever runCache already held, if
+        // anything, survives exactly as it was.
+        showError(
+          result.error && result.error.message ? result.error.message : "Unknown pipeline error."
+        );
+        return;
+      }
+      renderWarnings(result.warnings);
+      renderSummary(result.summary);
+      statusSection.hidden = false;
+      showChart(result.chart_html);
+
+      await storage.setRunCache({
+        activeIds: activeRecords.map((r) => r.id),
+        warnings: result.warnings,
+        summary: result.summary,
+        manifestJson: result.manifest_json,
+        chartHtml: result.chart_html,
+        computedAt: new Date().toISOString(),
+      });
+    } finally {
+      setBusy(false);
+    }
+  } finally {
+    // A monotonically-increasing counter, bumped exactly once per completed
+    // runOverActiveSet() call (success, failure, or the "nothing active" early return alike),
+    // *after* every DOM update above has already happened -- tests use this to wait for "the
+    // run this specific action triggered has fully settled" instead of racing the generic
+    // chart/error-visibility check against a chart that was already showing from a previous,
+    // unrelated run.
+    window.__finaRunSeq = (window.__finaRunSeq || 0) + 1;
+  }
+}
+
+/** A stored file's checkbox changed -- the sole path that ever changes `rawFiles.active`. */
+async function onToggleActive(id, active) {
+  await storage.setActive(id, active);
+  await refreshStoredFilesChecklist();
+  // WP-15 task spec: toggling re-runs the pipeline over the new active set immediately (chosen
+  // over "signal only, wait for an explicit re-run action") -- the checklist is the only control
+  // for `active`, so its own change event is already the user's explicit "recompute with this
+  // set" action; a second confirmation step would just be friction for what the checkbox click
+  // already unambiguously means.
+  await runOverActiveSet();
+}
+
 function showError(message) {
   errorMessageEl.textContent = message;
   errorSection.hidden = false;
@@ -201,38 +401,42 @@ function setBusy(isBusy) {
 // ---------------------------------------------------------------------------
 
 async function handleFiles(fileList) {
+  // Serializes every pick after startup's own checklist load / cache-display attempt
+  // (`_initPromise`, defined below) -- without this, a file picked immediately on page load
+  // could race `init()`'s own `storage.listRawFiles()` read/render and have its result
+  // clobbered by init()'s own (by-then-stale) render call finishing second. `_initPromise`
+  // itself never rejects (its own `.catch` already handled any startup error), so this await
+  // never throws on init()'s behalf.
+  await _initPromise;
   hideError();
-  clearChart();
-  statusSection.hidden = true;
 
   const { recognized, rejected } = await sniffAndPartition(fileList);
   renderRejected(rejected);
 
+  // WP-15/PWA-2.4: each newly-recognized file is written to `rawFiles` as soon as it is picked
+  // and recognized -- BEFORE the pipeline runs -- so a crash mid-computation never costs the
+  // user having to re-find and re-pick the file; only the (cheap, re-runnable) computation is
+  // ever lost. Re-picking an already-stored file (same content hash) is a no-op inside
+  // `addRawFile` itself, never a duplicate row.
+  for (const { file, adapter } of recognized) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await storage.addRawFile({ filename: file.name, bytes, recognizedAs: adapter, active: true });
+  }
+
+  if (recognized.length > 0) {
+    await refreshStoredFilesChecklist();
+  }
+
   if (recognized.length === 0) {
-    // Nothing recognized in this pick -- do not call runBuild() at all (an empty active-file
-    // set is not a meaningful pipeline input), and leave the chart/status sections cleared
-    // rather than showing anything stale.
+    // Nothing new was recognized in this pick -- the persistent active set (if any) is
+    // unchanged, so there is nothing new to compute; leave whatever was already displayed
+    // (from a prior run or the startup cache) exactly as it was.
     return;
   }
 
-  setBusy(true);
-  try {
-    const result = await runBuild(recognized);
-    if (!result.ok) {
-      // R-11.4 mirrored client-side: a recognized-shape file whose data still failed inside
-      // the real pipeline must never leave a partial or stale chart/summary on screen.
-      showError(
-        result.error && result.error.message ? result.error.message : "Unknown pipeline error."
-      );
-      return;
-    }
-    renderWarnings(result.warnings);
-    renderSummary(result.summary);
-    statusSection.hidden = false;
-    showChart(result.chart_html);
-  } finally {
-    setBusy(false);
-  }
+  // WP-15 (Q-M, "persistent library"): the run's input is every stored *active* file, not only
+  // what was just picked -- picking adds to the persistent set rather than replacing it.
+  await runOverActiveSet();
 }
 
 fileInput.addEventListener("change", (event) => {
@@ -245,6 +449,28 @@ fileInput.addEventListener("change", (event) => {
     showError(err && err.message ? err.message : String(err));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Startup: load the stored-files checklist and, if a fresh cache exists, display it -- both
+// entirely via storage.js, independent of whether/when Pyodide finishes booting (WP-15's whole
+// point: a file picked, and a prior result, are usable before Pyodide is ready at all).
+// ---------------------------------------------------------------------------
+
+async function init() {
+  const files = await refreshStoredFilesChecklist();
+  await displayCachedResultIfFresh(files);
+}
+
+const _initPromise = init()
+  .catch((err) => {
+    showError(err && err.message ? err.message : String(err));
+  })
+  .finally(() => {
+    // Marks startup (checklist load + cache display attempt) as settled, for tests to wait on
+    // deterministically -- independent of `__finaAppJsLoaded` below, which only means "this
+    // module's top-level code finished running", not "storage.js has been read yet".
+    window.__finaChecklistReady = true;
+  });
 
 // Marks this module as loaded/parsed for tests, the same convention
 // web/js/pyodide-bridge.js already established.

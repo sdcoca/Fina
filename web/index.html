@@ -49,6 +49,16 @@
     <div id="rejected-files" class="rejected-files" role="alert" hidden></div>
   </section>
 
+  <!-- WP-15 (Q-M, "persistent library"): every file ever recognized and imported stays listed
+       here across sessions -- deduplicated by content hash, never re-picked to be included
+       again. Each row's checkbox is the sole control for `rawFiles.active` (§2.3's checklist
+       refinement): unchecking a file excludes it from the next run without deleting it. -->
+  <section id="stored-files-section" class="stored-files-section" aria-labelledby="stored-files-heading">
+    <h2 id="stored-files-heading">Stored files</h2>
+    <p id="stored-files-empty" class="stored-files-empty">No files stored yet.</p>
+    <ul id="stored-files-list" class="stored-files-list" hidden></ul>
+  </section>
+
   <section id="error-section" class="error-section" role="alert" hidden>
     <h2>Could not compute a report</h2>
     <p id="error-message"></p>
