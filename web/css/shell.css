@@ -93,6 +93,24 @@ main {
   font-size: 13.5px;
 }
 
+/* WP-14 (PWA-1.4a): hidden by default -- shown only once a real `beforeinstallprompt` event
+ * fires (see web/js/install.js). Plain solid fill, no backdrop-filter (rule 20). */
+.install-button {
+  margin-top: 10px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--shell-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.install-button:active {
+  opacity: 0.85;
+}
+
 section {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
