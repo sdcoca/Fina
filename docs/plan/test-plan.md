@@ -62,6 +62,14 @@ combinations, deliberately assertion-general — it does not hardcode today's co
 lengths, so it also catches a defect introduced by *any future text change*, not only the
 `(cash_only)`-suffix removal and the two real overflow defects that motivated it (R-10.6).
 `T-711` (real touch-tap, no tap-highlight artifact, R-10.7) is also part of this gate.
+`T-712` (added — correction appended to Q-J, `docs/plan/open-questions.md`) is also part of
+this gate: `T-711`'s fix (disabling `-webkit-tap-highlight-color`) turned out to be necessary
+but not sufficient — a real touch tap still left a visible native `:focus` outline on
+`.hit-area` (it carries `tabindex="0"`, and Chromium's `:focus-visible` heuristic does not
+always classify a touch-driven focus event as keyboard-driven). `T-712` asserts both halves of
+the corrected fix so neither can silently regress: no visible outline after a real touch tap,
+and the outline still present after real keyboard Tab navigation (`page.keyboard.press("Tab")`
+until `.hit-area` is focused).
 *(rationale: G-1..G-8 verify narrow, pre-specified assertions — no wrapping at 390px,
 translucency present, and so on. Three real visual defects reached a real device (a headless-
 browser render in both themes/tooltip states, and separately a real Android phone) despite
@@ -347,6 +355,7 @@ contain); code, comments, test names and docs are English.
 | T-709 | No rule in this spec's rendering section is satisfied by a component that uses `backdrop-filter` — AST/CSS scan of the render module's stylesheet | R-10.2b |
 | T-710 | G-9: every text-bearing element's bounding box is fully contained within its intended container (SVG text within `.card`, tooltip text within `.tooltip`) — parametrized over all four combinations of {light, dark} × {tooltip closed, tooltip open} at a 390px viewport, using a synthetic worst-case series (large multi-digit euro figures, a loss) so the check has real headroom to fail against, not just today's fixture numbers | R-10.2, R-10.2a, R-10.6 |
 | T-711 | G-9: a real touch tap (Playwright `touchscreen.tap`, `has_touch=True` context — not `mouse.click`) on `.hit-area` and on `.tooltip-close` shows no visible tap-highlight artifact (`-webkit-tap-highlight-color` computed as fully transparent) in both themes, and the tap still functionally opens/closes the tooltip (proving `touch-action: manipulation` doesn't block the interaction) | R-10.7 |
+| T-712 | G-9 (correction appended to Q-J): after a real touch tap (Playwright `touchscreen.tap`) on `.hit-area`, the computed native `outline` shows no visible ring (`outlineStyle: none` or `outlineWidth: 0px`), in both themes — proving the T-711 tap-highlight-color fix alone was insufficient. Separately, after a real keyboard Tab (`page.keyboard.press("Tab")`) focuses `.hit-area`, `:matches(':focus-visible')` is true and the outline is still visible — proving the fix did not also remove the intended keyboard-accessibility ring | R-10.8 |
 
 ### 8.4 Meta-tests (the gates themselves)
 
@@ -484,6 +493,7 @@ packages land; a work package is not done until its rules appear here.
 | R-10.5 | T-704 (revised, Q-E: chart never displays the qualifier) |
 | R-10.6 | T-710 |
 | R-10.7 | T-711 |
+| R-10.8 | T-712 |
 | R-11.1 | T-500 |
 | R-11.2 | T-501, T-502 |
 | R-11.3 | T-504 |

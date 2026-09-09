@@ -466,3 +466,71 @@ document; Q-G and Q-H are the closer precedent.
 **Status**: RESOLVED (this session). All three defects fixed in `render/section1_chart.py`;
 G-9 added to `docs/plan/test-plan.md` §1 with `T-710`/`T-711` implementing it in
 `tests/test_render_browser.py`; the traceability matrix updated (new rules R-10.6/R-10.7).
+
+### Correction (appended, later session) — the T-711 fix was necessary but not sufficient
+
+**This is a correction to a prior claim of "done" from this same project.** The tap-highlight-
+color fix above (defect 3, `T-711`) was reported RESOLVED and verified. It was not fully
+verified, and the underlying defect — an orange rectangle around the chart's plot area on a
+real touch tap — was still present on a real Android phone after that fix landed. That pattern
+(reporting a fix as verified when the verification did not actually reach the real failure
+mode) is exactly what this project's owner has now had to catch twice and does not want to
+happen a third time; this entry exists to make the correction explicit rather than quietly
+folding it into the original, already-RESOLVED entry above.
+
+**What was actually verified the first time, and what it missed**: `T-711` drove a real
+`page.touchscreen.tap()` and asserted `getComputedStyle(hitArea).webkitTapHighlightColor` was
+fully transparent. That assertion is correct and still holds — `-webkit-tap-highlight-color`
+is genuinely suppressed. What `T-711` never checked was `getComputedStyle(hitArea).outline` at
+all. A follow-up session reproduced the project owner's real-device report directly: after a
+real `page.touchscreen.tap()` (not `page.mouse.click()`) in a headless browser,
+`getComputedStyle(hitArea)` showed `-webkit-tap-highlight-color: rgba(0,0,0,0)` (correctly
+transparent) **and, separately, also** `outline: rgb(229, 151, 0) auto 5px`, with
+`document.activeElement === hitArea` and `hitArea.matches(':focus-visible') === false`.
+
+**Actual root cause**: `.hit-area` carries `tabindex="0"` (needed so the tooltip is reachable
+by keyboard). A real touch tap focuses it. The pre-existing CSS only styled
+`.hit-area:focus-visible { outline: 2px solid var(--line-real); outline-offset: 2px; }` — it
+never addressed plain `:focus`. Chromium's heuristic for whether a given focus event counts as
+"focus-visible" does not always trigger for a synthetic/real touch tap; when it doesn't, the
+browser falls back to painting its own unstyled native default focus ring
+(`outline: auto 5px`, rendered orange on the platform this was caught on), which nothing in the
+page's CSS suppressed. This is a **different CSS mechanism entirely** from
+`-webkit-tap-highlight-color` — disabling one has no effect on the other, which is exactly why
+the original fix left the defect in place while its own test stayed green.
+
+**Fix**: added `.hit-area:focus { outline: none; }` immediately alongside the existing
+`.hit-area:focus-visible` rule, which is kept exactly as it was. This is the standard
+`:focus-visible` + `:focus { outline: none; }` pairing: `:focus-visible` supplies the intended
+ring for genuine keyboard navigation; `:focus { outline: none; }` only suppresses the browser's
+unstyled default for focus events not classified as keyboard-driven. Recorded normatively as a
+new rule, R-10.8 (`docs/spec/section1-ingestion-spec.md`), since this is a requirement `T-711`
+and R-10.7 never stated, not merely an under-tested case of an existing one.
+
+**How this was verified this time — both the touch path and the keyboard path, not just one**,
+since checking only the touch path a second time would repeat the same category of mistake in
+a smaller way:
+1. A real `page.touchscreen.tap()` (`has_touch=True`, `is_mobile=True` context) on `.hit-area`,
+   in both light and dark mode at a 390px viewport: confirms `document.activeElement` is the
+   hit-area (the focus really does happen) and that the computed `outline` now shows no visible
+   ring (`outlineStyle: "none"` or `outlineWidth: "0px"`).
+2. Separately, a real `page.keyboard.press("Tab")` navigating to the same element, in both
+   themes: confirms `document.activeElement` is the hit-area, `el.matches(':focus-visible')` is
+   `true`, and the outline is still visible (non-`"none"` style, non-`"0px"` width) — proving
+   the fix did not also blind keyboard users, which a blanket `outline: none` with no
+   `:focus-visible` rule would have done, and which nothing about fixing defect 3 the first time
+   would have caught either way, since no test before this correction ever drove a keyboard
+   event against this element.
+3. Fresh screenshots taken (light and dark, tooltip open via a real touch tap) at 390px: no
+   orange or otherwise colored rectangle visible around the chart's plot area in either theme.
+
+New regression test `T-712` (`tests/test_render_browser.py`, under the existing G-9 gate)
+implements both halves of check 1 and 2 above so this cannot regress silently again. Full gate
+suite (mypy --strict, ruff check + format --check, pytest --cov 100%, mutmut) re-run in full
+after this fix — see the commit for this correction for the exact numbers.
+
+**Status**: RESOLVED (this correcting session). The original Q-J entry above stays as the
+historical record of what was found and fixed at that time; this appended section is the
+correction to its "done" claim for defect 3 specifically, per this project's stability rule
+(CLAUDE.md rule 12) — the change is identified and explained here rather than silently
+overwriting the earlier text.

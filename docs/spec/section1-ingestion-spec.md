@@ -775,6 +775,23 @@ by test-plan.md's G-9 gate via `T-711`, which uses a real touch event (Playwrigh
 `touchscreen.tap`, not `mouse.click`) — see Q-J for why a mouse-click-based test can never
 exercise this code path at all.
 
+**R-10.8 (native focus outline on touch, added — correction appended to Q-J)** `.hit-area`
+carries `tabindex="0"` (needed for keyboard access to the tooltip). A real touch tap focuses
+it, and the mobile browser's own `:focus-visible` heuristic does not always classify that focus
+event as keyboard-driven; when it doesn't, the browser paints its own unstyled native default
+focus ring (observed: `outline: rgb(229, 151, 0) auto 5px`, an orange rectangle) unless the page
+suppresses plain `:focus`. `.hit-area` MUST define `:focus { outline: none; }` **in addition
+to**, never instead of, its existing `:focus-visible` rule (the two-line pattern:
+`:focus-visible` supplies the intended visible ring for real keyboard navigation;
+`:focus { outline: none; }` only removes the browser's unstyled default for focus events not
+classified as keyboard-driven). R-10.7's `-webkit-tap-highlight-color`/`touch-action` fix does
+not by itself satisfy this rule — that property and the browser's native `:focus` outline are
+unrelated CSS mechanisms, verified independently. Enforced by test-plan.md's G-9 gate via
+`T-712`, which asserts both a real touch tap (`page.touchscreen.tap`) leaves no visible outline
+and a real keyboard Tab (`page.keyboard.press("Tab")`) still shows one — see the correction
+appended to Q-J in `docs/plan/open-questions.md` for the full account of why `T-711` alone did
+not catch this.
+
 ---
 
 ## 11. CLI and pipeline

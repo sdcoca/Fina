@@ -1,5 +1,5 @@
 """Real-browser visual verification for fina.render.section1_chart (WP-9, re-derived for
-Q-G): T-705..T-711.
+Q-G): T-705..T-712.
 
 R-10.2a: verified by actually rendering the page at a 390px viewport first, desktop second --
 never inferred from reading the CSS. Excluded from mutmut's own test run (see pyproject.toml)
@@ -19,6 +19,13 @@ three real visual defects (a tooltip value-column overflow, an SVG end-label ove
 mobile tap-highlight artifact) reached a real device despite every test above being green,
 because none of them checked a general-purpose, content-agnostic containment property, and none
 of them ever drove a real touch event. T-710/T-711 close that systemic gap.
+
+T-712 (G-9, correction appended to Q-J): T-711's tap-highlight-color fix turned out not to be
+sufficient by itself -- a real Android tap still showed an orange rectangle around `.hit-area`
+after that fix landed. The actual remaining cause was the browser's own native `:focus` outline
+(not `:focus-visible`, not tap-highlight-color). T-712 asserts both halves of the corrected fix:
+no visible outline after a real touch tap, and the outline still present after real keyboard Tab
+navigation -- see the test's own docstring and Q-J's appended entry for the full account.
 """
 
 from __future__ import annotations
@@ -507,3 +514,86 @@ def test_t711_real_touch_tap_shows_no_tap_highlight_artifact(tmp_path: Path, the
         )
         page.wait_for_timeout(20)
         assert "visible" not in (page.locator("#s1-tooltip").get_attribute("class") or "")
+
+
+# ---------------------------------------------------------------------------
+# T-712 / G-9: the tap-highlight-color fix (T-711) was necessary but not sufficient --
+# correction appended to Q-J, `docs/plan/open-questions.md`. Root cause was the browser's own
+# native `:focus` outline (not `:focus-visible`, not tap-highlight-color): `.hit-area` carries
+# `tabindex="0"`, a real touch tap focuses it, and Chromium's `:focus-visible` heuristic does
+# not always classify that focus event as keyboard-driven -- when it doesn't, the browser paints
+# its own unstyled default focus ring (`outline: auto 5px`, observed as orange) unless something
+# suppresses plain `:focus`. This asserts BOTH halves of the fix so neither can silently regress:
+# no visible ring after a real touch tap, AND the ring still present after real keyboard Tab
+# navigation (the accessibility behaviour `:focus-visible` exists to preserve).
+# ---------------------------------------------------------------------------
+
+
+def _outline_is_suppressed(page: Page, selector: str) -> bool:
+    style = page.locator(selector).evaluate(
+        "el => { const s = getComputedStyle(el); "
+        "return {style: s.outlineStyle, width: s.outlineWidth}; }"
+    )
+    return style["style"] == "none" or style["width"] == "0px"
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_t712_native_focus_outline_suppressed_on_touch_tap_but_not_on_keyboard_tab(
+    tmp_path: Path, theme: str
+) -> None:
+    """Regression test for the correction to the original T-711 fix: disabling
+    `-webkit-tap-highlight-color` alone did not remove the orange rectangle a real Android tap
+    showed around `.hit-area`, because that artifact was never the tap-highlight overlay -- it
+    was the browser's own native `:focus` outline, which `-webkit-tap-highlight-color` cannot
+    touch. See the `.hit-area:focus` CSS rule's own comment in
+    `fina.render.section1_chart` and `docs/plan/open-questions.md` Q-J for the full account.
+    """
+    rows = _sample_series()
+    chart_path = _write_chart(tmp_path, rows)
+    count = len(rows)
+
+    # Half 1: a real touch tap must not leave a visible outline, even though it does focus the
+    # element (this is exactly the case a mouse-click-based test cannot exercise -- see T-711's
+    # own docstring for why Chromium's tap-highlight/focus-visible paths need a real touch
+    # event to activate at all).
+    with launch_chromium() as browser:
+        context = browser.new_context(viewport=_MOBILE_VIEWPORT, has_touch=True, is_mobile=True)
+        page = context.new_page()
+        page.emulate_media(color_scheme=theme)
+        page.goto(chart_path.as_uri())
+
+        _tap_month(page, count - 1, count)
+        page.wait_for_timeout(20)
+
+        is_focused = page.locator(".hit-area").evaluate("el => document.activeElement === el")
+        assert is_focused, (
+            "real touch tap did not focus .hit-area -- test no longer exercises the reported code path"
+        )
+        assert _outline_is_suppressed(page, ".hit-area"), (
+            "a visible native :focus outline remains after a real touch tap -- the orange "
+            "rectangle regression is back"
+        )
+
+    # Half 2: real keyboard Tab navigation to the same element must still show the intended
+    # blue :focus-visible ring -- proving the fix above did not also blind keyboard users, which
+    # a blanket `outline: none !important` (with no :focus-visible rule) would have done.
+    with launch_chromium() as browser:
+        page = browser.new_page(viewport=_MOBILE_VIEWPORT)
+        page.emulate_media(color_scheme=theme)
+        page.goto(chart_path.as_uri())
+
+        page.keyboard.press("Tab")
+        is_focused = page.locator(".hit-area").evaluate("el => document.activeElement === el")
+        assert is_focused, (
+            "Tab did not focus .hit-area -- unexpected tab order, cannot verify keyboard path"
+        )
+        matches_focus_visible = page.locator(".hit-area").evaluate(
+            "el => el.matches(':focus-visible')"
+        )
+        assert matches_focus_visible, (
+            "keyboard Tab focus is not classified as :focus-visible in this browser"
+        )
+        assert not _outline_is_suppressed(page, ".hit-area"), (
+            "keyboard-driven focus lost its visible outline -- the touch-tap fix regressed "
+            "real Tab-key accessibility"
+        )

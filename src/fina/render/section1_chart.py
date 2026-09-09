@@ -56,6 +56,14 @@ intended visual bound (`_PAD_RIGHT` was similarly razor-thin); and a mobile brow
 `page.mouse.click()` this project's own browser tests use (see `docs/plan/open-questions.md`
 Q-J for the full account, including why a real `page.touchscreen.tap()` test was required to
 even exercise that code path).
+
+**Correction (Q-J's appended entry, `docs/plan/open-questions.md`)**: the tap-highlight-color
+fix above was necessary but not sufficient -- a real Android touch tap still showed an orange
+rectangle after it. The actual remaining cause was the browser's own native `:focus` outline
+(`.hit-area` carries `tabindex="0"`, and a touch tap does not always satisfy Chromium's
+`:focus-visible` heuristic), not `-webkit-tap-highlight-color` and not `:focus-visible` itself.
+Fixed by adding `.hit-area:focus { outline: none; }` alongside the pre-existing
+`:focus-visible` rule, which is left unchanged. See the CSS comment at that rule and T-712.
 """
 
 from __future__ import annotations
@@ -501,6 +509,17 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }}
+/* Correction to the Q-J fix above (docs/plan/open-questions.md, appended entry): disabling
+   -webkit-tap-highlight-color was NOT sufficient on its own. A real touch tap still focuses
+   this element (it carries tabindex="0"), and Chromium's :focus-visible heuristic does not
+   always classify a touch-driven focus event as "focus-visible" -- when it doesn't, the
+   browser falls back to its own unstyled native focus ring (`outline: auto 5px`, rendered
+   orange on the platform this was caught on), which nothing below suppressed. The
+   `:focus-visible` rule must stay exactly as it is (it is what keeps a real Tab-key focus
+   visible); `:focus {{ outline: none; }}` only removes the browser's own default ring for
+   focus events that are not classified as keyboard-driven, per the standard
+   focus/focus-visible pairing pattern. See T-712 in tests/test_render_browser.py. */
+.hit-area:focus {{ outline: none; }}
 .hit-area:focus-visible {{ outline: 2px solid var(--line-real); outline-offset: 2px; }}
 .end-label {{
   font-family: "IBM Plex Mono", monospace;
