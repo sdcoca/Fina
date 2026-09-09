@@ -50,7 +50,32 @@ different export type from the same broker.
 **Recommendation**: ask the user whether the broker offers a statement export with a stated
 balance; until then the R-8.4 warning stands on every run.
 
-## Q-E — Presenting a cash-only net worth
+## Q-E — Presenting a cash-only net worth — RESOLVED
+
+**Decision (project owner, confirmed, this session)**: neither (a), (b) nor (c) below as
+originally weighed — the project owner instead decided the Section 1 chart should stop
+repeating the `cash_only` qualifier inline on every figure (end-of-line labels, every tooltip
+row) entirely. Rationale given: at this stage the qualifier repeated on every number is noise,
+not clarity; portfolio composition and its own completeness caveats belong in a later,
+dedicated report section built for exactly that purpose, not folded into this interim working
+chart one figure at a time. This is narrower than option (b) below (which this project had been
+running with) and stops short of (a) (this chart is not being omitted) — a fourth option the
+original framing didn't anticipate.
+
+**What changed**: `render/section1_chart.py`'s `_tooltip_rows` and `render_section1_chart` no
+longer branch on `ChartRow.completeness` at all — the `if row.completeness == "cash_only":`
+branches that appended `" (cash_only)"` were removed as dead code once the suffix itself was
+removed (not left unreachable behind a pragma). `ChartRow.completeness` itself is unchanged and
+still populated by every caller (`fina.render.prepare.to_chart_rows`), since a future caller —
+the dedicated completeness section this decision defers to — still needs it; only this module's
+own use of the field changed. R-9.4 and R-10.5 were reworded to match (R-9.4 keeps its general
+inline-qualifier requirement for every other surface — the CLI line in `cli.py` is unchanged and
+still shows it; R-10.5 now records this chart as the one narrower exception, not a repeal).
+`tests/test_section1_chart.py`'s T-704 tests were rewritten to assert the qualifier's absence
+explicitly (including with `completeness="cash_only"` set, to prove the omission is
+unconditional, not merely untested for that value) rather than deleted.
+
+**Original entry, for the record:**
 
 **Context**: R-9.4/R-10.5. Until D1 (price feed) lands, `real_net_worth` covers cash only.
 **Ambiguity**: how the two-page report should present this without misleading the reader —
@@ -362,3 +387,82 @@ established reliability contract for no functional gain over (a).
 
 **Status**: RESOLVED (this session) — implemented as (a) in `render/section1_chart.py`; see
 that module's own docstring for the same explanation, kept close to the code it describes.
+
+## Q-J — Three real visual defects the automated suite never caught; a systemic test-coverage
+gap, not three unrelated bugs (found by the project owner, this session) — RESOLVED
+
+**Context**: the project owner personally rendered `render/section1_chart.py`'s actual output
+with a real headless browser — light and dark mode, a 390px mobile width, tooltip open and
+closed — and, separately, on a real Android phone. Every gate in `docs/plan/test-plan.md` §1
+(100% coverage, high mutation-kill rates, mypy, ruff, the existing T-700..T-709 browser tests)
+was green at the time. Three real defects were found anyway:
+
+1. **Tooltip value-column overflow.** The tooltip's `.t-row` value column (`white-space:
+   nowrap`) overflowed the tooltip's own box — `max-width: 176px` in CSS, `tipWidth = 176` in
+   the page's own script — with no background behind the overflowing text, visually colliding
+   with the chart's own end-of-line labels.
+2. **SVG end-label overflow.** The SVG's own end-of-line value label text overflowed almost to
+   the card's own right edge (measured: under 1px of clearance), triggered by the `(cash_only)`
+   suffix (see Q-E above) but not caused by it alone — `_PAD_RIGHT`'s budget was already
+   razor-thin before that suffix existed; any month with a large enough `real_net_worth` (more
+   digits) could still have overflowed it.
+3. **Mobile tap-highlight artifact.** A real touch tap on `.hit-area` on a real Android phone
+   shows the browser's default `-webkit-tap-highlight-color` rectangle covering the whole
+   element — never seen in any headless-browser screenshot this project had taken, including
+   the reviewing session's own, because none of them used a real touch event.
+
+**Root cause (one, not three)**: every existing visual test asserted a narrow, pre-specified
+property chosen in advance — "text does not wrap", "translucency is present", "no
+`backdrop-filter`" — rather than a general-purpose, content-agnostic one. 100% line/branch
+coverage and a high mutation-kill rate on `render/section1_chart.py` only prove that the code
+that *was tested* behaves as its own narrow assertions require; neither proves the rendered
+output actually fits inside its own containers, because nothing before this session ever
+checked that as its own property. Defect 3 has a second, independent cause: no test in this
+project, before this session, ever drove a *real* touch event (see below).
+
+**Why no mouse-click-based test could ever have caught defect 3**: `-webkit-tap-highlight-color`
+is a mobile-browser affordance that Chromium's rendering path only activates for genuine
+touch-type pointer input — a real finger tap, or Playwright's own `page.touchscreen.tap()` in a
+browser context created with `has_touch=True`. `page.mouse.click()` — used by every test in
+`tests/test_render_browser.py` before this session, including the ones sized at the 390px
+mobile viewport — synthesizes a mouse-type pointer event regardless of the viewport's pixel
+dimensions; a "mobile-sized" viewport does not, by itself, make Chromium treat a click as a
+touch. So this was never a matter of a weaker assertion catching less than a stronger one could
+have — every existing test used an event type that structurally cannot reach the code path in
+question, on any assertion.
+
+**Fix**:
+1. `.tooltip`'s CSS `max-width` and the script's own `tipWidth` were both widened from `176` to
+   `230`, sized with real headroom (verified against a synthetic worst-case tooltip — every row
+   filled with a 9-digit euro amount and a minus sign, the longest label and month text this
+   chart renders) rather than just enough to fit today's fixture figures with the suffix gone.
+2. `_PAD_RIGHT` was widened from `104.0` to `128.0`, sized with real headroom the same way
+   against a synthetic worst-case end-of-line label.
+3. `.hit-area` and `.tooltip-close` both gained `-webkit-tap-highlight-color: transparent` and
+   `touch-action: manipulation` (the latter also removes the double-tap-zoom delay on mobile).
+4. A new mandatory gate, **G-9** (`docs/plan/test-plan.md` §1), requires every text-bearing
+   element's bounding box (via real `getBoundingClientRect()`) to sit fully inside its intended
+   container, in both themes, at 390px, in both tooltip states — implemented as `T-710`,
+   deliberately assertion-general (it does not hardcode today's copy or figure lengths) so it
+   also catches a defect from *any future text change*, not only these two.
+5. A new test, `T-711`, drives a real touch tap (`page.touchscreen.tap`, `has_touch=True`) on
+   `.hit-area` and `.tooltip-close` and asserts the computed `-webkit-tap-highlight-color` is
+   fully transparent in both themes, and that the tap still functionally opens/closes the
+   tooltip (so a `touch-action` value that accidentally blocked tapping would also fail it).
+
+Both new tests live in `tests/test_render_browser.py`, alongside T-700..T-709, per this
+project's existing file-organization convention for real-browser visual verification (as
+opposed to `tests/test_section1_chart.py`'s fast, pure-Python markup/geometry tests).
+
+**Options considered for where to record this**: (a) `docs/technical-decisions.md`, matching
+its narrative "options considered → decision → why" pattern for design/testing-methodology
+decisions (e.g. §3-4's date-ordering research); (b) a new resolved entry here in
+`open-questions.md`, matching Q-G/Q-H's pattern of "bug found on a real render → why the
+existing 100%-covered, highly-mutation-tested suite didn't catch it → fix → resolution", which
+is exactly this entry's own shape. **Decision**: (b) — this is a single investigative finding
+with a concrete before/after fix and a resolution status, not an open-ended narrative rationale
+document; Q-G and Q-H are the closer precedent.
+
+**Status**: RESOLVED (this session). All three defects fixed in `render/section1_chart.py`;
+G-9 added to `docs/plan/test-plan.md` §1 with `T-710`/`T-711` implementing it in
+`tests/test_render_browser.py`; the traceability matrix updated (new rules R-10.6/R-10.7).

@@ -36,6 +36,26 @@ the only numbers this module computes itself are pixel coordinates (`ChartRow`'s
 floats, unavoidable for any renderer) and small presentation-only string transforms (an axis
 tick rounded to the nearest thousand, a "+"/"-" sign prefix on the headline gap) -- neither is a
 financial figure in its own right.
+
+R-9.4's `cash_only` qualifier is deliberately **not** appended to any figure here any more (Q-E
+resolution, `docs/plan/open-questions.md`): the project owner decided that repeating it inline
+on every number in this interim chart was noise, and that portfolio-composition/completeness
+caveats belong in a later, dedicated report section instead. `ChartRow.completeness` is still
+carried through (a future caller needs it) but this module no longer branches on it. R-10.5 was
+revised accordingly -- see the spec.
+
+Three real visual defects (found by the project owner rendering this module's actual output, on
+a real headless browser at 390px in both themes/tooltip states, and separately on a real Android
+phone -- none caught by the pre-existing, narrowly-targeted test suite despite 100% coverage and
+high mutation scores) are fixed here and closed structurally via a new gate, G-9, in
+`docs/plan/test-plan.md`: a tooltip value column overflowing its own tooltip box with no
+background behind the overflow (`.tooltip`'s `max-width` / the script's `tipWidth` were sized
+for today's copy, not headroom); the SVG's own end-of-line labels overflowing past their
+intended visual bound (`_PAD_RIGHT` was similarly razor-thin); and a mobile browser's default
+`-webkit-tap-highlight-color` overlay on `.hit-area`, invisible to every synthetic
+`page.mouse.click()` this project's own browser tests use (see `docs/plan/open-questions.md`
+Q-J for the full account, including why a real `page.touchscreen.tap()` test was required to
+even exercise that code path).
 """
 
 from __future__ import annotations
@@ -48,7 +68,16 @@ from dataclasses import dataclass
 _WIDTH = 960.0
 _HEIGHT = 420.0
 _PAD_LEFT = 64.0
-_PAD_RIGHT = 104.0
+#: Reserved space (in the 960-wide viewBox) to the right of the plot for the end-of-line value
+#: labels. Widened from the original 104.0 (defect #3 in Q-J, `docs/plan/open-questions.md`):
+#: measured against real headless-browser output, 104.0 left under 1px of clearance to the
+#: card's own right edge for the `(cash_only)`-suffixed label that triggered the defect, and
+#: the underlying budget was already razor-thin even without that suffix -- any month with a
+#: larger `real_net_worth` (more digits) could still have overflowed it. 128.0 was chosen with
+#: real headroom verified against a synthetic worst-case figure well beyond any plausible
+#: personal net worth (a 9-digit euro amount with a minus sign, `"-999999999.99€"`) and
+#: re-checked at a 390px viewport in `tests/test_render_browser.py`.
+_PAD_RIGHT = 128.0
 _PAD_TOP = 28.0
 _PAD_BOTTOM = 40.0
 _PLOT_WIDTH = _WIDTH - _PAD_LEFT - _PAD_RIGHT
@@ -204,15 +233,16 @@ def _grid_ticks(min_value: float, max_value: float) -> list[float]:
 
 
 def _tooltip_rows(row: ChartRow) -> list[tuple[str, str]]:
-    """The tooltip's ordinary (non-gap) label/value rows, in display order. `real_value`
-    carries R-10.5's `cash_only` qualifier inline -- the same figure, travelling with its own
-    qualifier, never a separate footer (R-10.2 forbids one).
+    """The tooltip's ordinary (non-gap) label/value rows, in display order.
+
+    Per Q-E's resolution (`docs/plan/open-questions.md`), this chart no longer appends R-9.4's
+    `cash_only` qualifier inline: the project owner decided portfolio-composition/completeness
+    caveats belong to a later, dedicated report section, not repeated on every figure in this
+    interim chart (see R-10.5, revised). `row.completeness` is still carried on `ChartRow` for
+    that future caller; this module simply never branches on it any more.
     """
-    real_value = _format_eur(row.real_net_worth_display)
-    if row.completeness == "cash_only":
-        real_value = f"{real_value} ({row.completeness})"
     return [
-        ("Patrimonio real", real_value),
+        ("Patrimonio real", _format_eur(row.real_net_worth_display)),
         ("Solo ahorro", _format_eur(row.savings_only_display)),
         ("Ahorro del mes", _format_eur(row.savings_flow_display)),
     ]
@@ -302,9 +332,8 @@ def render_section1_chart(rows: Sequence[ChartRow]) -> str:
 
     last_point = points[-1]
     last_row = rows[-1]
+    # No `cash_only` suffix here either -- see `_tooltip_rows`'s docstring / Q-E's resolution.
     real_end_label = _format_eur(last_row.real_net_worth_display)
-    if last_row.completeness == "cash_only":
-        real_end_label = f"{real_end_label} ({last_row.completeness})"
     label_x = last_point.x + 8
     end_labels_svg = (
         f'<text class="end-label real" x="{label_x:.2f}" y="{last_point.real_y + 4:.2f}">'
@@ -466,7 +495,12 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
 .dot {{ r: 4; stroke: var(--surface); stroke-width: 1.5; opacity: 0; }}
 .dot-real {{ fill: var(--line-real); }}
 .dot-ahorro {{ fill: var(--line-ahorro); }}
-.hit-area {{ fill: transparent; cursor: pointer; }}
+.hit-area {{
+  fill: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}}
 .hit-area:focus-visible {{ outline: 2px solid var(--line-real); outline-offset: 2px; }}
 .end-label {{
   font-family: "IBM Plex Mono", monospace;
@@ -497,7 +531,15 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   opacity: 0;
   transition: opacity 0.08s ease;
-  max-width: 176px;
+  /* Widened from the original 176px (defect #2 in Q-J, `docs/plan/open-questions.md`):
+     measured against real headless-browser output, 176px let the `.t-row` value column (`
+     white-space: nowrap`) overflow the tooltip box with no background behind the overflow,
+     visually colliding with the chart's own end-of-line labels. 230px was chosen with real
+     headroom verified against a synthetic worst-case tooltip (every row filled with a 9-digit
+     euro amount, a minus sign, and the longest label/month text this chart ever renders) --
+     see `tests/test_render_browser.py`'s G-9 containment test. Kept in sync with the script's
+     own `tipWidth` below; both must change together. */
+  max-width: 230px;
   z-index: 5;
 }}
 .tooltip.visible {{ pointer-events: auto; opacity: 1; }}
@@ -515,6 +557,8 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
   line-height: 1;
   cursor: pointer;
   border-radius: 4px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }}
 .tooltip-close:hover {{ color: var(--ink); }}
 .tooltip .t-month {{
@@ -623,7 +667,7 @@ Solo ahorro, sin invertir</div>
     }});
 
     var frac = p.x / {width:.0f};
-    var tipWidth = 176;
+    var tipWidth = 230; // must match .tooltip's max-width above (Q-J).
     var left = frac * chartArea.clientWidth - tipWidth / 2;
     left = Math.min(Math.max(left, 0), Math.max(chartArea.clientWidth - tipWidth, 0));
     tooltip.style.left = left + "px";

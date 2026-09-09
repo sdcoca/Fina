@@ -662,10 +662,15 @@ own tests, run in isolation, could see that the two disagreed once combined.)*
 **R-9.3** `real_net_worth(t) = Σ cash_balance(·, t) + Σ quantity_held(·, t) ×
 close_price(asset, t)`. The second term is **D1**: no price feed exists.
 
-**R-9.4** Until D1 lands, the pipeline MUST emit `real_net_worth` with an explicit
-`completeness` flag of `"cash_only"` and MUST NOT present it as total net worth anywhere —
-no chart, table or CLI line may display a cash-only figure without that qualifier
-(CLAUDE.md rule 11).
+**R-9.4** Until D1 lands, the pipeline MUST emit `real_net_worth` (and every `Section1Period`)
+with an explicit `completeness` flag of `"cash_only"`, and MUST NOT present it as total net
+worth anywhere. Every CLI line and every report table that shows `real_net_worth` as a total
+MUST carry that qualifier inline (CLAUDE.md rule 11). **The Section 1 chart (§10) is the one
+exception to this inline-qualifier requirement**, governed instead by R-10.5 — see that rule
+and the Q-E resolution in `docs/plan/open-questions.md` for why, and note that the underlying
+data-model requirement in this rule's first sentence (the flag itself MUST always be emitted,
+never silently dropped) is unaffected: only the *display* duty this rule assigns is narrowed
+for that one view.
 
 **R-9.5** `savings_flow(month)` = `Σ contribution(e)` over entries dated within that
 calendar month, where:
@@ -739,8 +744,36 @@ only inside a media query or theme block.
 financial figure itself. *(rationale: two implementations of one formula is how two answers
 to one question appear.)*
 
-**R-10.5** Any figure displayed as a total while D1 is outstanding MUST carry the
-`cash_only` qualifier from R-9.4.
+**R-10.5 (revised — Q-E resolution, `docs/plan/open-questions.md`)** This chart does **not**
+repeat the `cash_only` qualifier inline on any figure (end-of-line labels, tooltip rows, or any
+other on-chart text) — the project owner decided portfolio-composition and completeness
+caveats belong in a later, dedicated report section, not on every number in this interim
+working chart. `ChartRow.completeness` is still populated by every caller (a future caller,
+e.g. that dedicated section, needs it) but this chart's own renderer never branches on it to
+alter displayed text. This is a deliberate, narrower carve-out from R-9.4's general rule, not a
+repeal of it: any *other* surface presenting `real_net_worth` as a finished total (a CLI line,
+a report table) still MUST carry the qualifier per R-9.4 unchanged.
+
+**R-10.6 (containment, added — Q-J, `docs/plan/open-questions.md`)** Every text-bearing element
+this chart renders — SVG text (grid/axis labels, end-of-line value labels) and tooltip text
+(month header, as-of line, every row's label and value, the gap row) — MUST render fully inside
+its intended container's content box at every viewport width the chart is verified at (R-10.2a),
+in both themes (R-10.3), whether the tooltip is open or closed: SVG text within the visible
+chart card, tooltip text within the tooltip's own box. This is deliberately general and
+content-agnostic — it is not satisfied by checking today's specific copy or figure lengths, and
+MUST hold for arbitrary future text, not merely the cases in G-9's own worked examples.
+Enforced by test-plan.md's G-9 gate (`T-710`). *(rationale: two real defects — a tooltip value
+column overflowing its own box, and the SVG's own end-of-line labels overflowing past the card —
+both reached a real device despite 100% coverage and high mutation scores on this module,
+because every prior test asserted a narrow, pre-specified property (no wrapping, translucency
+present) rather than this general one. See Q-J for the full account.)*
+
+**R-10.7 (touch input, added — Q-J)** Every element this chart makes tappable (`.hit-area`,
+`.tooltip-close`) MUST disable the mobile browser's default `-webkit-tap-highlight-color`
+overlay and MUST set `touch-action: manipulation` to avoid the double-tap-zoom delay. Enforced
+by test-plan.md's G-9 gate via `T-711`, which uses a real touch event (Playwright's
+`touchscreen.tap`, not `mouse.click`) — see Q-J for why a mouse-click-based test can never
+exercise this code path at all.
 
 ---
 

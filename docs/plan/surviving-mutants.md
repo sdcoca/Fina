@@ -409,3 +409,27 @@ longer apply, superseded by this port's 9), sum to exactly the 42 this run repor
 `section1.py` and `reconciliation.py`'s own survivors (2 and 1 respectively, both from the
 Q-H fix above) are unchanged by this port, confirming the chart re-derivation touched no
 money-path module.
+
+## Q-J fix (`render/section1_chart.py` — removed the `cash_only` suffix, widened `_PAD_RIGHT`
+and the tooltip's `max-width`/`tipWidth`, added tap-highlight/touch-action CSS)
+
+Removing the two `if row.completeness == "cash_only":` branches (Q-E's resolution) removed
+exactly 9 mutants along with them — the branch conditions and their string-literal siblings
+that mutmut had generated for that now-deleted code, all of which were previously killed, not
+survivors. The widened `_PAD_RIGHT`/tooltip `max-width`/`tipWidth` numeric constants and the
+new `-webkit-tap-highlight-color`/`touch-action` CSS declarations (plain string literals inside
+the template, not executable branches) added no new mutable Python logic.
+
+Full run (every module in the project): **2609 mutants generated, 2567 killed, 42 survived, 0
+timeout** (down from 2618/2576/42/0 before this fix — 9 fewer mutants generated, 9 fewer
+killed, the same 42 survived). `render/section1_chart.py` alone: **421 mutants, 412 killed, 9
+survived = 97.9%** (down from 430/421/9 — same 97.9%, same 9 survivors, same mutant IDs as
+documented in the Q-G port section above: `x__padded_range__mutmut_10`,
+`x__band_polygons__mutmut_4`/`_7`, `x__points_payload__mutmut_32`/`_35`/`_36`,
+`x_render_section1_chart__mutmut_39`/`_42`/`_43`). Verified identical, not merely
+re-documented: every survivor's mutant ID, function, and justification carries over unchanged
+from the Q-G port section — this fix touched no code path any of those 9 mutants exercise.
+
+Excluding the 9 documented equivalents, `render/section1_chart.py`'s real kill rate is
+412/412 = 100%. Across the entire project, excluding all 42 documented equivalents, the real
+kill rate is 2567/2567 = 100%.

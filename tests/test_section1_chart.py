@@ -285,29 +285,45 @@ def test_click_outside_the_tooltip_closes_it() -> None:
 
 
 # ---------------------------------------------------------------------------
-# T-704 / R-10.5: cash_only qualifier travels with the figure, no separate footer
+# T-704 / R-10.5 (revised -- Q-E resolution): no `cash_only` qualifier anywhere in this chart
+# any more, regardless of `completeness` -- the caveat now belongs to a later, dedicated report
+# section, per the project owner's decision (`docs/plan/open-questions.md` Q-E). These tests
+# assert the *absence* of the old behaviour explicitly (not merely its silent disappearance),
+# so a future regression re-introducing the suffix would fail loudly.
 # ---------------------------------------------------------------------------
 
 
-def test_t704_cash_only_qualifier_is_rendered_on_the_end_label() -> None:
+def test_t704_no_qualifier_on_the_end_label_even_when_completeness_is_cash_only() -> None:
     html_doc = render_section1_chart([_row(completeness="cash_only")])
     value_label_match = re.search(r'class="end-label real"[^>]*>([^<]*)</text>', html_doc)
     assert value_label_match is not None
-    assert value_label_match.group(1) == "100.00€ (cash_only)"
+    assert value_label_match.group(1) == "100.00€"
+    assert "cash_only" not in html_doc
 
 
-def test_t704_qualifier_omitted_when_completeness_is_not_cash_only() -> None:
+def test_t704_no_qualifier_on_the_end_label_when_completeness_is_something_else() -> None:
     html_doc = render_section1_chart([_row(completeness="other")])  # type: ignore[arg-type]
     value_label_match = re.search(r'class="end-label real"[^>]*>([^<]*)</text>', html_doc)
     assert value_label_match is not None
     assert value_label_match.group(1) == "100.00€"
 
 
-def test_t704_cash_only_qualifier_also_carried_in_the_tooltip() -> None:
+def test_t704_no_qualifier_in_the_tooltip_even_when_completeness_is_cash_only() -> None:
     rows = _tooltip_rows(_row(completeness="cash_only"))
     label, value = rows[0]
     assert label == "Patrimonio real"
-    assert value == "100.00€ (cash_only)"
+    assert value == "100.00€"
+    assert "cash_only" not in value
+
+
+def test_t704_completeness_field_is_still_carried_on_chart_row_though_unused_here() -> None:
+    """`ChartRow.completeness` is retained (a future report section needs it -- Q-E) even
+    though this module no longer reads it to change any displayed text.
+    """
+    row = _row(completeness="cash_only")
+    assert row.completeness == "cash_only"
+    html_doc = render_section1_chart([row])
+    assert "cash_only" not in html_doc
 
 
 def test_end_labels_sit_at_the_last_points_x_plus_8_exactly() -> None:
@@ -485,6 +501,10 @@ def test_thousands_label_divides_by_1000_exactly_not_1001() -> None:
 
 
 def test_tooltip_rows_exact_text_with_three_distinct_values() -> None:
+    """`completeness="cash_only"` is set here deliberately (not `"other"`) to prove the
+    absence of the old `(cash_only)` suffix is unconditional, not merely untested for this
+    value -- see T-704's own tests above for the same point made explicitly.
+    """
     row = _row(
         completeness="cash_only",
         real_net_worth_display="111.11",
@@ -492,7 +512,7 @@ def test_tooltip_rows_exact_text_with_three_distinct_values() -> None:
         savings_flow_display="333.33",
     )
     assert _tooltip_rows(row) == [
-        ("Patrimonio real", "111.11€ (cash_only)"),
+        ("Patrimonio real", "111.11€"),
         ("Solo ahorro", "222.22€"),
         ("Ahorro del mes", "333.33€"),
     ]
@@ -533,7 +553,7 @@ def test_tooltip_html_exact_text_with_four_distinct_values() -> None:
         '<div class="t-month">Mar 2027</div>'
         '<div class="t-asof">a fecha de 2027-03-31</div>'
         '<div class="t-row"><span class="lab">Patrimonio real</span>'
-        "<span>111.11€ (cash_only)</span></div>"
+        "<span>111.11€</span></div>"
         '<div class="t-row"><span class="lab">Solo ahorro</span><span>222.22€</span></div>'
         '<div class="t-row"><span class="lab">Ahorro del mes</span><span>444.44€</span></div>'
         '<div class="t-row t-gap gain"><span class="lab">Hueco</span><span>+333.33€</span></div>'
@@ -803,8 +823,8 @@ def test_points_payload_escapes_a_closing_script_tag_in_month_label() -> None:
 
 
 def test_double_quote_in_tooltip_content_is_html_escaped() -> None:
-    """`month_label` (unlike `completeness`, which only ever feeds an `== "cash_only"`
-    comparison and is never echoed verbatim) is placed into the tooltip's markup via
+    """`month_label` (unlike `completeness`, which this module no longer reads at all -- Q-E --
+    and is never echoed verbatim regardless) is placed into the tooltip's markup via
     `html.escape`, so a literal `"` in it must never survive unescaped.
     """
     row = _row(month_label='Mar" onmouseover="alert(1)')

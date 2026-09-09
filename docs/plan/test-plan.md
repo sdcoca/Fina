@@ -48,6 +48,27 @@ temp dirs and asserts byte-identical manifests. Covers R-1.20.
 changes, spec §12 and the affected tests change **in the same commit**, and the diff must
 show the recomputation. `T-904` fails if any skip/xfail marker exists in the suite.
 
+**G-9 Visual containment (general, content-agnostic — added, Q-J in `docs/plan/open-
+questions.md`).** For every text-bearing element in the rendered Section 1 chart, in both light
+and dark mode, at a 390px viewport width, in both tooltip-closed and tooltip-open states, its
+bounding box (measured via a real headless browser's `getBoundingClientRect()`, never inferred
+from reading the CSS) MUST be fully contained within its intended container's content box:
+SVG text (grid/axis labels, end-of-line value labels) within the chart card (`.card`); tooltip
+text (month header, as-of line, every row's label and value, the gap row) within the tooltip's
+own box (`.tooltip`). Zero tolerance beyond sub-pixel rendering noise (a fixed, documented
+epsilon of at most 1px, justified in the test itself as browser rounding, never as a loosening
+of the containment check). Implemented by `T-710`, parametrized over all four theme×state
+combinations, deliberately assertion-general — it does not hardcode today's copy or figure
+lengths, so it also catches a defect introduced by *any future text change*, not only the
+`(cash_only)`-suffix removal and the two real overflow defects that motivated it (R-10.6).
+`T-711` (real touch-tap, no tap-highlight artifact, R-10.7) is also part of this gate.
+*(rationale: G-1..G-8 verify narrow, pre-specified assertions — no wrapping at 390px,
+translucency present, and so on. Three real visual defects reached a real device (a headless-
+browser render in both themes/tooltip states, and separately a real Android phone) despite
+100% coverage and high mutation scores on `render/section1_chart.py`, precisely because nothing
+checked a general-purpose, content-agnostic property like this one. See Q-J for the full
+account of what was found and why the existing suite could not have caught it.)*
+
 ---
 
 ## 2. Test data policy
@@ -318,12 +339,14 @@ contain); code, comments, test names and docs are English.
 | T-701 | Every colour token is defined in the base `:root` block, not only in a theme block | R-10.3 |
 | T-702 | Band colour switches at the interpolated zero-crossing, not at the nearest data point | R-10.2 |
 | T-703 | Tooltip markup is only produced on the click path (no hover handler emitted) | R-10.2 |
-| T-704 | `cash_only` qualifier rendered whenever completeness is `cash_only` | R-10.5, R-9.4 |
+| T-704 | (revised, Q-E) `cash_only` qualifier is **never** rendered by this chart, on the end label or in the tooltip, regardless of `completeness`'s value — asserts the absence explicitly, not merely its silent disappearance | R-10.5, R-9.4 |
 | T-705 | PDF export smoke test: file produced, non-zero size, one page | R-10.1 |
 | T-706 | Rendered at a 390px viewport, tooltip text does not wrap onto an extra line (parametrized over every month, since label/value lengths vary) | R-10.2, R-10.2a |
 | T-707 | Rendered at 390px, a pixel sample inside the open tooltip differs measurably from the tooltip's own flat background colour when a coloured series/band is directly behind it (proves visible translucency, not just a non-1.0 alpha value in the CSS) | R-10.2, R-10.2b |
 | T-708 | Visual checks in T-700..T-707 run at 390px width first; a desktop-width (≥ 900px) pass is a separate, additional case, never a substitute | R-10.2a |
 | T-709 | No rule in this spec's rendering section is satisfied by a component that uses `backdrop-filter` — AST/CSS scan of the render module's stylesheet | R-10.2b |
+| T-710 | G-9: every text-bearing element's bounding box is fully contained within its intended container (SVG text within `.card`, tooltip text within `.tooltip`) — parametrized over all four combinations of {light, dark} × {tooltip closed, tooltip open} at a 390px viewport, using a synthetic worst-case series (large multi-digit euro figures, a loss) so the check has real headroom to fail against, not just today's fixture numbers | R-10.2, R-10.2a, R-10.6 |
+| T-711 | G-9: a real touch tap (Playwright `touchscreen.tap`, `has_touch=True` context — not `mouse.click`) on `.hit-area` and on `.tooltip-close` shows no visible tap-highlight artifact (`-webkit-tap-highlight-color` computed as fully transparent) in both themes, and the tap still functionally opens/closes the tooltip (proving `touch-action: manipulation` doesn't block the interaction) | R-10.7 |
 
 ### 8.4 Meta-tests (the gates themselves)
 
@@ -453,12 +476,14 @@ packages land; a work package is not done until its rules appear here.
 | R-9.11 | T-415 |
 | R-9.12 | (deferred D2) |
 | R-10.1 | T-705 |
-| R-10.2 | T-702, T-703, T-706, T-707 |
-| R-10.2a | T-706, T-708 |
+| R-10.2 | T-702, T-703, T-706, T-707, T-710 |
+| R-10.2a | T-706, T-708, T-710 |
 | R-10.2b | T-707, T-709 |
 | R-10.3 | T-701 |
 | R-10.4 | T-700 |
-| R-10.5 | T-704 |
+| R-10.5 | T-704 (revised, Q-E: chart never displays the qualifier) |
+| R-10.6 | T-710 |
+| R-10.7 | T-711 |
 | R-11.1 | T-500 |
 | R-11.2 | T-501, T-502 |
 | R-11.3 | T-504 |
