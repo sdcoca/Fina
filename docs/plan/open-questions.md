@@ -534,3 +534,106 @@ historical record of what was found and fixed at that time; this appended sectio
 correction to its "done" claim for defect 3 specifically, per this project's stability rule
 (CLAUDE.md rule 12) — the change is identified and explained here rather than silently
 overwriting the earlier text.
+
+## Q-K — Android packaging tier for this iteration (found during mobile-packaging research)
+
+**Context**: `docs/plan/mobile-packaging.md` §1-3, §6. Three packaging tiers are available once
+the PWA shell lands: (1) the installable PWA alone (already a real installed Android app —
+a WebAPK, not a bookmark); (2) the same bundle wrapped with Capacitor into a sideloaded Android
+APK, which additionally unlocks OS-keystore-backed secure storage, a share-sheet import target,
+and a path to native biometrics; (3) a Play Store listing on top of (2).
+
+**Ambiguity**: which tier to build *this* iteration is a product decision, not a technical one —
+none of tier 2's capabilities are load-bearing yet (file import already works via
+`<input type="file">` without a wrapper; app-lock is separately deferred per Q-L below; secure
+storage's main payoff is iOS-eviction mitigation, and iOS isn't being shipped yet), but the
+project owner's original framing ("a real installable app... beyond just add to home screen")
+could be read as wanting the wrapper built now regardless of whether a concrete capability
+currently needs it.
+
+**Options**: (a) tier 1 only this iteration, revisit tier 2 when a concrete capability gap
+materializes (iOS eviction mitigation, app-lock via native biometrics, or the share-sheet
+convenience); (b) build the Capacitor Android wrapper (tier 2) this iteration regardless, so the
+"real app" feeling and the sideloadable artifact exist immediately even without a capability
+depending on it yet; (c) go straight to a Play Store listing (tier 3) — the document's own
+analysis rules this out for now on its own merits (the closed-testing gate requires 12 distinct
+testers for a personal tool with exactly one user) independent of this open question.
+
+**Recommendation**: (a). Full reasoning in `docs/plan/mobile-packaging.md` §6. Not implemented;
+awaiting the project owner's confirmation of tier and, if (b) is preferred instead, of the extra
+build/signing work that entails now rather than later.
+
+## Q-L — App-lock scope and timing (found during mobile-packaging research)
+
+**Context**: `docs/plan/mobile-packaging.md` §5. This app handles the project owner's real bank
+and brokerage data on a personal device; no PIN/biometric lock exists today beyond the phone's
+own OS lock screen.
+
+**Ambiguity**: whether that is acceptable for this iteration, and if not, which mechanism to
+build first — this is a product risk-tolerance decision, not something the packaging research
+can resolve on its own.
+
+**Options**: (a) defer app-lock entirely this iteration, accepting the documented interim risk
+(anyone who has already unlocked the phone can open the full ledger, no second factor); (b) add
+a WebAuthn platform-authenticator prompt (Face ID/Touch ID/fingerprint) on app open now — no
+native wrapper required, works today on both Chrome/Android and Safari 16+/iOS; (c) wait until
+the Capacitor wrapper exists for another reason (Q-K) and use its native Biometrics plugin
+instead of WebAuthn.
+
+**Recommendation**: (a) for this iteration, with (b) as the default first step whenever app-lock
+is prioritized — it needs no packaging decision made first and is cheaper than (c). Not
+implemented; awaiting the project owner's confirmation that the interim risk in §5.2 of the
+packaging document is acceptable for now.
+
+## Q-M — Cross-session persistence of ingested source files / ledger state in the mobile PWA
+
+**Context**: `docs/plan/mobile-pyodide.md` §3.3, researching how to bridge a browser file
+picker into the existing `Path`-based adapters for the Pyodide-based PWA. The bridging
+mechanism writes picked files into Pyodide's in-memory virtual filesystem (`MEMFS`), which is
+discarded when the page/worker is torn down — deliberately, since it matches this project's
+existing "recompute from raw files each run, nothing hand-maintained between runs" design
+(`docs/technical-decisions.md` §5.1's own-accounts registry decision leans on the same
+statelessness).
+
+**Ambiguity**: that statelessness was designed around a desktop workflow where all source
+files already sit in one folder and every run reprocesses all of them. A monthly mobile
+review is a different shape: the user picks files via a file input or share-sheet, one export
+at a time, possibly over several months. Two things are unclear and the answer changes what
+gets built:
+1. Does the user re-pick **every** historical bank/broker export **every single month**
+   (nothing persists, MEMFS's default behaviour is simply left as-is), or does the app need to
+   remember previously-ingested files (or a serialized ledger/manifest) across sessions on the
+   device — via `IDBFS`/`IndexedDB` — so a monthly visit only means "add this month's new
+   export(s)"?
+2. If something does persist on-device, is it the **raw source files** (re-run the full
+   pipeline from scratch each time, preserving the "recompute from raw files" property, at the
+   cost of storing every export ever supplied on the phone) or a **derived ledger/manifest**
+   (smaller, faster, but a second place state lives, and a device storage clear would silently
+   lose history no server copy backs up)?
+
+**Options**:
+1. No persistence — the user re-supplies every export every session. Simplest to build,
+   truest to the existing stateless design, but likely impractical after a few months of
+   monthly exports (re-picking a year's worth of files every time), and risks the user giving
+   up on the workflow.
+2. Persist raw source files on-device (`IDBFS`), re-run the full pipeline each session.
+   Preserves the recompute-from-raw-files property exactly; cost is on-device storage of every
+   export ever supplied (bank/broker CSV and XLSX files are small, so this is likely fine in
+   practice, but is a device-storage dependency with no backup unless the user separately
+   keeps the original files elsewhere).
+3. Persist a derived, serialized ledger/manifest on-device, and only feed genuinely new export
+   files through the adapters incrementally. Smallest on-device footprint and fastest re-open,
+   but introduces exactly the kind of "second parallel file that must stay in sync" this
+   project's architecture rule (CLAUDE.md rule 16) exists to avoid, unless the serialized form
+   is treated strictly as a cache that can always be rebuilt from (2)'s raw files rather than
+   as a second source of truth.
+
+**Recommendation**: (2) — persist raw source files via `IDBFS` and keep recomputing the full
+ledger from them each session, with (3)'s serialized ledger allowed *only* as a rebuildable
+performance cache on top of (2), never as a replacement for it. This is the option that
+changes the fewest of this project's existing architectural guarantees (single source of
+truth, rule 16; recompute-from-raw-files, technical-decisions.md §5.1) while still solving the
+real usability problem of not re-picking a year of exports every month. Not implemented;
+awaiting a decision — this also determines how much of the mobile work package needs to
+design an on-device storage/backup story, so it should be resolved before that work package is
+written, not during it.
