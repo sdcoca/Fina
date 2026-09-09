@@ -325,6 +325,7 @@ contain); code, comments, test names and docs are English.
 | T-506 | `ValidationError` → same | R-11.4 |
 | T-507 | Manifest contains input SHA-256s, owned accounts, warnings, version, series | R-11.5 |
 | T-508 | Two runs → byte-identical manifests (also G-7) | R-1.20 |
+| T-509 | `sniff_adapter_name` recognizes each fixture and returns `None` (never raising) on an unrecognized file; a differential check that it agrees with `_select_adapter` on both the recognized and unrecognized cases | WP-10 |
 
 ### 8.2 Property-based (Hypothesis)
 
@@ -377,6 +378,7 @@ packages land; a work package is not done until its rules appear here.
 | Rule | Tests |
 |---|---|
 | R-0.3 | (process rule — verified by review, not by test) |
+| WP-10 | T-509 (browser/shell interface contract — `sniff_adapter_name` implements no `R-n.m` rule of its own; it is `_select_adapter`'s own dispatch, reused, in a non-raising shape) |
 | R-1.1 | T-013, T-415, T-607, T-902 |
 | R-1.2 | T-013, T-902 |
 | R-1.3 | T-403 |

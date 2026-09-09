@@ -78,6 +78,17 @@ def _select_adapter(file_path: Path) -> tuple[str, Callable[[Path], AdapterResul
     )
 
 
+def sniff_adapter_name(file_path: Path) -> str | None:
+    """Browser/shell interface (WP-10): which adapter's shape this file matches, without
+    running the pipeline and without raising when nothing matches. Reuses ``_ADAPTERS``'
+    own ordering so adapter dispatch has exactly one source of truth with `_select_adapter`.
+    """
+    for name, sniff, _parse_fn in _ADAPTERS:
+        if sniff(file_path):
+            return name
+    return None
+
+
 def _header_balances_for(adapter_name: str, file_path: Path) -> dict[tuple[str, str], Decimal]:
     """R-8.5's same-file cross-check: only the bank adapter's export carries a header-stated
     balance to compare against (R-7.2); other adapters contribute nothing here.

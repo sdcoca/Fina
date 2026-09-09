@@ -433,3 +433,18 @@ from the Q-G port section — this fix touched no code path any of those 9 mutan
 Excluding the 9 documented equivalents, `render/section1_chart.py`'s real kill rate is
 412/412 = 100%. Across the entire project, excluding all 42 documented equivalents, the real
 kill rate is 2567/2567 = 100%.
+
+## WP-10 (`pipeline.py` — added `sniff_adapter_name`)
+
+The new function generated exactly **1** mutant (`x_sniff_adapter_name__mutmut_1`), killed by
+the new differential tests in `tests/test_pipeline.py` (agreement with `_select_adapter` on
+both a recognized and an unrecognized file). No new survivor.
+
+Full run: **2610 mutants generated, 2568 killed, 42 survived, 0 timeout** (up from
+2609/2567/42/0 before this change — 1 more mutant generated, 1 more killed, the same 42
+survived, same mutant IDs). `pipeline.py` alone: **175 mutants, 170 killed, 5 survived =
+97.1%** (up from 174/169/5 — same 5 survivors as documented above, unchanged). Threshold for
+`pipeline.py` is ≥90% per the test plan; met.
+
+Excluding the 42 documented equivalents, the real kill rate across the entire project is
+2568/2568 = 100%.

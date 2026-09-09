@@ -289,3 +289,58 @@ def test_t508_two_runs_produce_byte_identical_manifests(tmp_path: Path) -> None:
     json_a = json.dumps(manifest_dict(result_a), indent=2)
     json_b = json.dumps(manifest_dict(result_b), indent=2)
     assert json_a == json_b
+
+
+# ---------------------------------------------------------------------------
+# WP-10 / `sniff_adapter_name`: browser/shell interface, no `R-n.m` rule of its own
+# ---------------------------------------------------------------------------
+
+
+def test_sniff_adapter_name_recognizes_the_broker_csv_fixture() -> None:
+    from fina.pipeline import sniff_adapter_name
+
+    assert sniff_adapter_name(BROKER_CSV) == "trade_republic_broker_csv"
+
+
+def test_sniff_adapter_name_recognizes_the_bank_xlsx_fixture() -> None:
+    from fina.pipeline import sniff_adapter_name
+
+    assert sniff_adapter_name(BANK_XLSX) == "bank_es_xlsx"
+
+
+def test_sniff_adapter_name_returns_none_without_raising_on_an_unrecognized_file(
+    tmp_path: Path,
+) -> None:
+    from fina.pipeline import sniff_adapter_name
+
+    garbage = tmp_path / "garbage.txt"
+    garbage.write_text("this is not any known export format\n")
+
+    assert sniff_adapter_name(garbage) is None
+
+
+def test_sniff_adapter_name_agrees_with_select_adapter_on_every_fixture() -> None:
+    """Differential check: `sniff_adapter_name` must never disagree with the pipeline's own
+    `_select_adapter` on a file it actually accepts -- one source of truth for dispatch.
+    """
+    from fina.pipeline import _select_adapter, sniff_adapter_name
+
+    for fixture in (BROKER_CSV, BANK_XLSX):
+        selected_name, _parse_fn = _select_adapter(fixture)
+        assert sniff_adapter_name(fixture) == selected_name
+
+
+def test_sniff_adapter_name_agrees_with_select_adapter_on_an_unrecognized_file(
+    tmp_path: Path,
+) -> None:
+    """The other half of the differential check: where `_select_adapter` raises,
+    `sniff_adapter_name` must return `None`, never a name and never a different exception.
+    """
+    from fina.pipeline import _select_adapter, sniff_adapter_name
+
+    garbage = tmp_path / "garbage.txt"
+    garbage.write_text("this is not any known export format\n")
+
+    assert sniff_adapter_name(garbage) is None
+    with pytest.raises(ParseError):
+        _select_adapter(garbage)
