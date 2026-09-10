@@ -17,6 +17,18 @@
 <link rel="stylesheet" href="/css/shell.css">
 </head>
 <body>
+<!-- WP-16 (PWA-4.4): explicit "update available -- reload to apply" prompt. Hidden until
+     web/js/sw-register.js's updatefound/statechange handling shows it, in direct response to a
+     new service-worker version finishing install behind an already-active one -- never shown,
+     and never acted on, without the user's own click (see that module's own header comment for
+     why: a chart mid-tooltip-interaction must never be silently swapped underneath the user). -->
+<div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
+  <p class="update-banner-text">A new version of Fina is available.</p>
+  <button id="update-reload-button" class="update-reload-button" type="button">
+    Reload to update
+  </button>
+</div>
+
 <header class="app-header">
   <h1>Fina</h1>
   <p class="app-tagline">Wealth and tax tracking, computed on your device.</p>
@@ -59,6 +71,27 @@
     <ul id="stored-files-list" class="stored-files-list" hidden></ul>
   </section>
 
+  <!-- WP-17: storage-eviction mitigation (required, not optional -- see docs/plan/
+       mobile-pwa-shell.md sections 1.4b/2.4.3). "Export backup" saves every stored file (active
+       and inactive alike) as a single zip a user can put wherever they choose on their own
+       device; "Restore from backup" feeds an exported archive back through the same
+       sniff-before-run path a fresh pick uses. -->
+  <section id="backup-section" class="backup-section" aria-labelledby="backup-heading">
+    <h2 id="backup-heading">Backup</h2>
+    <p class="backup-description">
+      Save every stored file as one archive you keep yourself, in case this device's storage is
+      ever cleared or evicted.
+    </p>
+    <button id="export-backup-button" class="backup-button" type="button">Export backup</button>
+
+    <div class="restore-controls">
+      <label for="restore-backup-input" class="file-input-label">Restore from backup</label>
+      <input type="file" id="restore-backup-input" accept=".zip">
+    </div>
+
+    <p id="backup-status" class="backup-status" role="status" aria-live="polite" hidden></p>
+  </section>
+
   <section id="error-section" class="error-section" role="alert" hidden>
     <h2>Could not compute a report</h2>
     <p id="error-message"></p>
@@ -87,5 +120,10 @@
 <script src="/vendor/pyodide/pyodide.js"></script>
 <script type="module" src="/js/app.js"></script>
 <script type="module" src="/js/install.js"></script>
+<!-- WP-16: registers web/service-worker.js and owns the update-banner's own logic above; see
+     that module's header comment for the full lifecycle. Independent of app.js/install.js --
+     loaded last only by convention (registering the SW does not need to block anything else on
+     this page from starting). -->
+<script type="module" src="/js/sw-register.js"></script>
 </body>
 </html>

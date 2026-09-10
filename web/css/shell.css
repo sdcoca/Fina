@@ -111,6 +111,52 @@ main {
   opacity: 0.85;
 }
 
+/* WP-16 (PWA-4.4): the "update available -- reload to apply" prompt, hidden by default (see
+ * web/js/sw-register.js and index.html's own comment on this element). Plain solid fill /
+ * plain alpha background, no backdrop-filter (rule 20); sits above <header> in document order
+ * so it reads as a top-of-app notice rather than competing with the import/stored-files cards
+ * below it. */
+.update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 640px;
+  margin: 0 auto 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--shell-accent-bg);
+  border: 1px solid var(--shell-accent);
+  font-size: 13.5px;
+}
+
+.update-banner-text {
+  margin: 0;
+  color: var(--shell-ink);
+}
+
+.update-reload-button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--shell-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.update-reload-button:active {
+  opacity: 0.85;
+}
+
+.update-reload-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 section {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
@@ -253,6 +299,68 @@ h2 {
   color: var(--shell-muted);
 }
 
+/* WP-17: backup/export. Deliberately reuses `.file-input-label`'s look for the restore
+ * input's own label (§4 of that WP's build tasks: "placed sensibly ... usable and not visually
+ * broken at 390px" -- consistency with the import section above it is the simplest way to meet
+ * that bar) rather than inventing a second visual language for what is, functionally, the same
+ * kind of action (pick a file). No `backdrop-filter` anywhere here (rule 20) -- the status line
+ * is a plain solid-color text row, no translucent surface at all. */
+.backup-description {
+  margin: 0 0 12px;
+  color: var(--shell-ink-2);
+  font-size: 13.5px;
+}
+
+.backup-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--shell-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.backup-button:active {
+  opacity: 0.85;
+}
+
+.backup-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.restore-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+#restore-backup-input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  font-size: 14px;
+  color: var(--shell-ink);
+  padding: 4px 0;
+}
+
+.backup-status {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--shell-ink-2);
+  word-break: break-word;
+}
+
+.backup-status--error {
+  color: var(--shell-danger);
+}
+
 .error-section {
   background: var(--shell-danger-bg);
   border-color: var(--shell-danger);
@@ -353,7 +461,8 @@ h2 {
 
 @media (min-width: 700px) {
   main,
-  .app-header {
+  .app-header,
+  .update-banner {
     max-width: 720px;
   }
 }

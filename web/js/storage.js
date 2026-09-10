@@ -69,6 +69,28 @@ function _openDb() {
   return _dbPromise;
 }
 
+/**
+ * Closes this module's own cached IndexedDB connection, if one is open, and forgets it (any
+ * later call to a store function transparently re-opens a fresh connection on demand -- this is
+ * not a teardown of the module, only of the one connection).
+ *
+ * Exists for WP-17's backup-round-trip verification: a caller about to call the browser's own
+ * `indexedDB.deleteDatabase(...)` directly (simulating real storage eviction) needs this
+ * module's own connection to not be the thing left holding `deleteDatabase` pending/"blocked"
+ * -- ordinary persistent-library usage never has a reason to close the connection itself, so
+ * nothing else in this module calls this.
+ *
+ * @returns {Promise<void>}
+ */
+export async function closeDb() {
+  if (_dbPromise === null) {
+    return;
+  }
+  const db = await _dbPromise;
+  db.close();
+  _dbPromise = null;
+}
+
 function _promisifyRequest(req) {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
@@ -205,6 +227,35 @@ export async function getActiveFiles() {
       id: record.id,
       filename: record.filename,
       recognizedAs: record.recognizedAs,
+      bytes: new Uint8Array(buf),
+    });
+  }
+  return out;
+}
+
+/**
+ * Every stored raw file's metadata AND bytes, active or not -- the full backup-export input
+ * (WP-17): unlike `getActiveFiles()`, this deliberately does NOT filter by `active`, since a
+ * backup is meant to capture everything this device has ever stored, not merely the current
+ * run's active subset (an inactive file must still round-trip through export/restore).
+ *
+ * @returns {Promise<Array<{id: string, filename: string, recognizedAs: string | null,
+ *   active: boolean, bytes: Uint8Array}>>}
+ */
+export async function getAllFilesWithBytes() {
+  const db = await _openDb();
+  const tx = db.transaction([STORE_RAW_FILES], "readonly");
+  const store = tx.objectStore(STORE_RAW_FILES);
+  const all = await _promisifyRequest(store.getAll());
+  await _txDone(tx);
+  const out = [];
+  for (const record of all) {
+    const buf = await record.bytes.arrayBuffer();
+    out.push({
+      id: record.id,
+      filename: record.filename,
+      recognizedAs: record.recognizedAs,
+      active: record.active,
       bytes: new Uint8Array(buf),
     });
   }

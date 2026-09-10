@@ -123,6 +123,55 @@ export async function runBuild(files) {
   }
 }
 
+/**
+ * WP-17: builds a single backup archive (a plain zip, via `bridge.py`'s stdlib-`zipfile`-backed
+ * `export_backup` -- never a second, JS-side zip implementation) over `files`, and returns its
+ * raw bytes.
+ *
+ * @param {Array<{filename: string, bytes: Uint8Array, recognizedAs: string | null,
+ *   active: boolean}>} files
+ * @returns {Promise<Uint8Array>} the zip archive's raw bytes.
+ */
+export async function exportBackup(files) {
+  const pyodide = await _getPyodide();
+  const bridge = pyodide.pyimport("bridge");
+  try {
+    const result = bridge.export_backup(files);
+    try {
+      return result.toJs();
+    } finally {
+      result.destroy();
+    }
+  } finally {
+    bridge.destroy();
+  }
+}
+
+/**
+ * WP-17: reverses `exportBackup` -- unzips `zipBytes` (via `bridge.py`'s stdlib-`zipfile`-backed
+ * `import_backup`) and returns the list of archived entries. Callers (`web/js/backup.js`) must
+ * still re-sniff every entry's bytes via `sniffFile()` before trusting/storing it -- this
+ * function alone does not re-validate anything, it only reverses the archive format.
+ *
+ * @param {Uint8Array} zipBytes
+ * @returns {Promise<Array<{filename: string, bytes: Uint8Array, recognizedAs: string | null,
+ *   active: boolean}>>}
+ */
+export async function importBackup(zipBytes) {
+  const pyodide = await _getPyodide();
+  const bridge = pyodide.pyimport("bridge");
+  try {
+    const result = bridge.import_backup(zipBytes);
+    try {
+      return result.toJs({ dict_converter: Object.fromEntries });
+    } finally {
+      result.destroy();
+    }
+  } finally {
+    bridge.destroy();
+  }
+}
+
 // Set once this module has finished loading and parsing -- used by
 // tests/test_pyodide_bridge.py as a load-time sanity check that this file is syntactically
 // valid and importable as an ES module inside a real browser, independent of whether any

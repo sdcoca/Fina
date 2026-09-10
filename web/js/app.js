@@ -16,7 +16,12 @@
 // `storage.js` never inspects a `bridge.run()` result itself, it only ever gets told, after the
 // fact, "here is a record to cache" (`setRunCache`) or nothing at all on failure -- a failed run
 // leaves whatever `runCache` record already existed completely untouched (§2.4.2).
+//
+// WP-17: wires in `backup.js`'s export/restore actions (storage-eviction mitigation). A restore
+// that actually adds files follows the exact same write-then-refresh-then-run sequencing
+// `handleFiles` below already uses for a fresh pick -- see `handleRestore`.
 
+import { exportBackupToFile, restoreFromFile } from "./backup.js";
 import { sniffAndPartition } from "./import.js";
 import { runBuild } from "./pyodide-bridge.js";
 import * as storage from "./storage.js";
@@ -26,6 +31,9 @@ const busyIndicator = document.getElementById("busy-indicator");
 const rejectedFilesEl = document.getElementById("rejected-files");
 const storedFilesEmptyEl = document.getElementById("stored-files-empty");
 const storedFilesListEl = document.getElementById("stored-files-list");
+const exportBackupButton = document.getElementById("export-backup-button");
+const restoreBackupInput = document.getElementById("restore-backup-input");
+const backupStatusEl = document.getElementById("backup-status");
 const errorSection = document.getElementById("error-section");
 const errorMessageEl = document.getElementById("error-message");
 const statusSection = document.getElementById("status-section");
@@ -475,6 +483,107 @@ fileInput.addEventListener("change", (event) => {
     setBusy(false);
     showError(err && err.message ? err.message : String(err));
   });
+});
+
+// ---------------------------------------------------------------------------
+// WP-17: backup export/restore wiring. `backup-status` is a small, separate status line (not
+// `error-section`/`rejected-files`, which are both specifically about the import/run flow) --
+// export and restore are their own action with their own outcome to report, independent of
+// whatever the shell's main import/run state currently shows.
+// ---------------------------------------------------------------------------
+
+function showBackupStatus(message, isError) {
+  backupStatusEl.textContent = message;
+  backupStatusEl.hidden = false;
+  backupStatusEl.classList.toggle("backup-status--error", Boolean(isError));
+}
+
+function hideBackupStatus() {
+  backupStatusEl.hidden = true;
+  backupStatusEl.textContent = "";
+  backupStatusEl.classList.remove("backup-status--error");
+}
+
+exportBackupButton.addEventListener("click", () => {
+  hideBackupStatus();
+  exportBackupButton.disabled = true;
+  exportBackupToFile()
+    .then((count) => {
+      if (count === 0) {
+        showBackupStatus("Nothing to back up yet -- no files stored.", false);
+      } else {
+        showBackupStatus(
+          count === 1 ? "Backup saved (1 file)." : `Backup saved (${count} files).`,
+          false
+        );
+      }
+    })
+    .catch((err) => {
+      showBackupStatus(err && err.message ? err.message : String(err), true);
+    })
+    .finally(() => {
+      exportBackupButton.disabled = false;
+      // Mirrors __finaRunSeq's convention (see runOverActiveSet): bumped once per completed
+      // export attempt, success or failure alike, after the status line has already been
+      // updated -- tests wait on this instead of racing a fixed timeout against a real download.
+      window.__finaBackupSeq = (window.__finaBackupSeq || 0) + 1;
+    });
+});
+
+/**
+ * Restores `file` (a picked backup archive) via `backup.js`, then -- mirroring `handleFiles`'s
+ * own write-before-run sequencing exactly -- refreshes the stored-files checklist once any
+ * entries were actually restored, and re-runs the pipeline over the (now possibly larger)
+ * active set so the shell's displayed result never goes stale relative to what was just
+ * restored.
+ */
+async function handleRestore(file) {
+  await _initPromise;
+  hideBackupStatus();
+  hideError();
+
+  const { restored, rejected } = await restoreFromFile(file);
+
+  if (restored.length > 0) {
+    await refreshStoredFilesChecklist();
+  }
+
+  const parts = [];
+  if (restored.length > 0) {
+    parts.push(restored.length === 1 ? "Restored 1 file." : `Restored ${restored.length} files.`);
+  }
+  if (rejected.length > 0) {
+    parts.push(
+      `${rejected.length} file(s) from the backup were not restored (unrecognized shape): ` +
+        rejected.map((r) => r.filename).join(", ")
+    );
+  }
+  if (parts.length === 0) {
+    parts.push("The backup archive contained no files.");
+  }
+  showBackupStatus(parts.join(" "), rejected.length > 0 && restored.length === 0);
+
+  if (restored.length > 0) {
+    await runOverActiveSet();
+  }
+}
+
+restoreBackupInput.addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  // Cleared immediately (not just after a successful restore) so picking the exact same backup
+  // file path again later still fires a "change" event -- the input's own value, not this
+  // module's state, is what would otherwise suppress a second identical pick.
+  restoreBackupInput.value = "";
+  if (!file) {
+    return;
+  }
+  handleRestore(file)
+    .catch((err) => {
+      showBackupStatus(err && err.message ? err.message : String(err), true);
+    })
+    .finally(() => {
+      window.__finaBackupSeq = (window.__finaBackupSeq || 0) + 1;
+    });
 });
 
 // ---------------------------------------------------------------------------
