@@ -535,7 +535,7 @@ correction to its "done" claim for defect 3 specifically, per this project's sta
 (CLAUDE.md rule 12) — the change is identified and explained here rather than silently
 overwriting the earlier text.
 
-## Q-K — Android packaging tier for this iteration (found during mobile-packaging research)
+## Q-K — Android packaging tier for this iteration (found during mobile-packaging research) — RESOLVED
 
 **Context**: `docs/plan/mobile-packaging.md` §1-3, §6. Three packaging tiers are available once
 the PWA shell lands: (1) the installable PWA alone (already a real installed Android app —
@@ -559,11 +559,16 @@ depending on it yet; (c) go straight to a Play Store listing (tier 3) — the do
 analysis rules this out for now on its own merits (the closed-testing gate requires 12 distinct
 testers for a personal tool with exactly one user) independent of this open question.
 
-**Recommendation**: (a). Full reasoning in `docs/plan/mobile-packaging.md` §6. Not implemented;
-awaiting the project owner's confirmation of tier and, if (b) is preferred instead, of the extra
-build/signing work that entails now rather than later.
+**Recommendation**: (a). Full reasoning in `docs/plan/mobile-packaging.md` §6.
 
-## Q-L — App-lock scope and timing (found during mobile-packaging research)
+**Status**: RESOLVED / IMPLEMENTED (WP-10..WP-18). Built as option (a): the installable PWA
+alone (`web/manifest.json` + `web/service-worker.js`, WP-14/WP-16) — no Capacitor wrapper, no
+Play Store listing. Confirmed by the project owner before implementation began (approved
+plan `/root/.claude/plans/fluffy-leaping-leaf.md`, "Q-K — packaging tier this iteration: PWA
+only, no Capacitor, no Play Store"). Revisit tier 2/3 only if a concrete capability gap
+materializes, per this entry's own original reasoning.
+
+## Q-L — App-lock scope and timing (found during mobile-packaging research) — RESOLVED
 
 **Context**: `docs/plan/mobile-packaging.md` §5. This app handles the project owner's real bank
 and brokerage data on a personal device; no PIN/biometric lock exists today beyond the phone's
@@ -581,11 +586,15 @@ the Capacitor wrapper exists for another reason (Q-K) and use its native Biometr
 instead of WebAuthn.
 
 **Recommendation**: (a) for this iteration, with (b) as the default first step whenever app-lock
-is prioritized — it needs no packaging decision made first and is cheaper than (c). Not
-implemented; awaiting the project owner's confirmation that the interim risk in §5.2 of the
-packaging document is acceptable for now.
+is prioritized — it needs no packaging decision made first and is cheaper than (c).
 
-## Q-M — Cross-session persistence of ingested source files / ledger state in the mobile PWA
+**Status**: RESOLVED / IMPLEMENTED-AS-DEFERRED (WP-10..WP-18). Option (a): app-lock was not
+built this iteration; the phone's own OS lock screen remains the only access gate, exactly as
+recommended. Confirmed by the project owner before implementation began (approved plan: "Q-L —
+app-lock: deferred entirely this iteration"). Option (b), WebAuthn, remains the recommended
+first step whenever this is picked back up — no packaging decision needed first.
+
+## Q-M — Cross-session persistence of ingested source files / ledger state in the mobile PWA — RESOLVED
 
 **Context**: `docs/plan/mobile-pyodide.md` §3.3, researching how to bridge a browser file
 picker into the existing `Path`-based adapters for the Pyodide-based PWA. The bridging
@@ -633,10 +642,30 @@ ledger from them each session, with (3)'s serialized ledger allowed *only* as a 
 performance cache on top of (2), never as a replacement for it. This is the option that
 changes the fewest of this project's existing architectural guarantees (single source of
 truth, rule 16; recompute-from-raw-files, technical-decisions.md §5.1) while still solving the
-real usability problem of not re-picking a year of exports every month. Not implemented;
-awaiting a decision — this also determines how much of the mobile work package needs to
-design an on-device storage/backup story, so it should be resolved before that work package is
-written, not during it.
+real usability problem of not re-picking a year of exports every month.
+
+**Status**: RESOLVED / IMPLEMENTED (WP-15, "persistent library"). Confirmed by the project
+owner before implementation began (approved plan: "Q-M — persistence: raw source files
+persisted via IDBFS; full ledger recomputed from them every session; a derived manifest is a
+rebuildable cache only, never a second source of truth" — option (2), with (3) built exactly
+as the allowed `runCache` performance cache, never a second source of truth).
+
+One deliberate, documented implementation-level deviation from the plan's own wording (per
+CLAUDE.md rule 7): raw file bytes are persisted via a genuine browser-side `indexedDB.open()`
+database (`web/js/storage.js`'s `rawFiles`/`runCache`/`settings` stores), not literally through
+Emscripten's `IDBFS` mount inside Pyodide's own virtual filesystem. This satisfies the
+*decision* (content-addressed, deduplicated, persistent raw-file storage, full recompute every
+session) while keeping persistence independent of whether Pyodide has finished booting yet —
+`docs/plan/mobile-pwa-shell.md` §2.2 itself allows this ("a name and a set of fields, not a
+commitment to exact IndexedDB API mechanics"). On each run, the active subset's bytes are
+copied from this database into the `/uploads` MEMFS path WP-12's bridge already reads, so the
+pipeline itself sees no difference from a fresh pick.
+
+Also built beyond this entry's own original scope, because the plan folded it in as a direct
+consequence: the active/inactive checklist this entry's own "one refinement" flagged as cheap
+once persistence exists (`docs/plan/mobile-pwa-shell.md` §2.3's refinement), and WP-17's
+export/restore backup (the storage-eviction mitigation this persistence model makes necessary,
+since there is no server copy anywhere per rule 18).
 
 ## Q-N — When to move from print-to-PDF to a client-side JS PDF library (found during
 mobile-PDF-export research)
@@ -670,5 +699,10 @@ by the owner's own stated preference.
 **Recommendation**: (1), per `docs/plan/mobile-pdf-export.md` §3 — it is the smaller,
 reversible step, adds no dependency to an app that already has a real load-time cost to
 manage, and reuses this project's existing Playwright-based verification of the same Chromium
-print-to-PDF pipeline a real "Save as PDF" click would hit. Not implemented; awaiting the
-project owner's confirmation of (1), or a stated preference for (2) or (3) instead.
+print-to-PDF pipeline a real "Save as PDF" click would hit.
+
+**Status**: DEFERRED (confirmed, not silently dropped). Not built in WP-10..WP-18, by explicit
+scope (approved plan: "PDF export (Q-N) — the design in `docs/plan/mobile-pdf-export.md`
+exists for later; no package above builds it"). Neither option (1) nor (2) is implemented; the
+design in `docs/plan/mobile-pdf-export.md` remains available, unchanged, for whenever this is
+picked back up.
