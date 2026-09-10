@@ -54,6 +54,19 @@
   box-sizing: border-box;
 }
 
+/* Found while building WP-16's update banner, which needs an element that is both toggled via
+ * the `hidden` attribute AND declares its own `display` value for when it's shown (`display:
+ * flex`, for the banner's layout). Per the CSS cascade, an author-origin rule that sets
+ * `display` beats the UA stylesheet's own `[hidden] { display: none }` regardless of selector
+ * specificity or source order -- so `.foo[hidden]` can silently keep rendering whenever `.foo`
+ * itself declares `display`. This single rule makes `hidden` win unconditionally, for every
+ * element in this file now and later; it also retroactively fixes the same latent defect on
+ * `.status-section`/`.stored-files-list` below (both pre-existing, both only invisible today by
+ * accident, because they happen to render no visible content while hidden). */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
