@@ -93,14 +93,21 @@ def test_manifest_has_name_and_short_name(manifest: dict[str, Any]) -> None:
 
 def test_manifest_start_url_matches_wp13_convention(manifest: dict[str, Any]) -> None:
     # WP-13's own browser tests (tests/test_pwa_shell.py) always navigate to the explicit
-    # "/index.html" path, never bare "/" -- the manifest's start_url follows that established
-    # convention rather than assuming an untested root-index resolution (task 1's own caveat).
-    assert manifest["start_url"] == "/index.html"
+    # "index.html" path, never bare "/". Deliberately relative, not root-relative ("/index.html"):
+    # the Web App Manifest spec resolves a relative start_url against the manifest's own URL, so
+    # this works whether the app is served from an origin's root or, as a GitHub Pages *project*
+    # site actually does, from a subpath ("/<repo-name>/") -- a root-relative value would point
+    # at the server's true root instead and 404 under that real deployment target (found on a
+    # real device; see tests/test_pwa_subpath_deployment.py, the regression test for this).
+    assert manifest["start_url"] == "index.html"
     assert (WEB_DIR / "index.html").is_file()
 
 
 def test_manifest_scope_is_whole_origin(manifest: dict[str, Any]) -> None:
-    assert manifest["scope"] == "/"
+    # "." (not "/"), for the same subpath-safety reason as start_url above: a manifest-relative
+    # scope covers "wherever this app's own files live", which is the origin's root only when
+    # that happens to be where the app is deployed.
+    assert manifest["scope"] == "."
 
 
 def test_manifest_display_is_an_installable_value(manifest: dict[str, Any]) -> None:
@@ -145,8 +152,12 @@ def test_manifest_icons_cover_required_sizes_and_purposes(manifest: dict[str, An
 
     for icon in icons:
         assert icon["type"] == "image/png"
-        assert icon["src"].startswith("/"), f"icon src must be an absolute path: {icon['src']}"
-        icon_path = WEB_DIR / icon["src"].lstrip("/")
+        # Relative, not root-relative: a manifest-relative icon src resolves against the
+        # manifest's own URL regardless of what subpath the app is deployed under (see
+        # test_manifest_scope_is_whole_origin's own comment for why root-relative paths broke a
+        # real deployment).
+        assert not icon["src"].startswith("/"), f"icon src must be a relative path: {icon['src']}"
+        icon_path = WEB_DIR / icon["src"]
         assert icon_path.is_file(), f"manifest references a missing icon file: {icon['src']}"
 
 
@@ -303,16 +314,27 @@ def test_index_html_still_renders_clean_at_390px_with_manifest_and_icon_tags(
         )
         try:
             # <link rel="manifest"> is present, points at a real, fetchable, same-origin file.
+            # Deliberately relative ("./manifest.json"), not root-relative -- see
+            # test_pwa_subpath_deployment.py for why a root-relative href 404s under a real
+            # (subpath) deployment. Read the resolved `.href` DOM property (an absolute URL the
+            # browser itself computed), not the raw attribute string, so this assertion exercises
+            # the same resolution a real browser depends on rather than string-matching source.
             manifest_href = page.locator('link[rel="manifest"]').get_attribute("href")
-            assert manifest_href == "/manifest.json"
-            manifest_response = page.request.get(f"{manifest_server}{manifest_href}")
+            assert manifest_href == "./manifest.json"
+            manifest_resolved = page.eval_on_selector('link[rel="manifest"]', "el => el.href")
+            assert manifest_resolved == f"{manifest_server}/manifest.json"
+            manifest_response = page.request.get(manifest_resolved)
             assert manifest_response.ok
             assert manifest_response.json()["name"] == "Fina"
 
             # apple-touch-icon <link>, same-origin fetchable.
             apple_icon_href = page.locator('link[rel="apple-touch-icon"]').get_attribute("href")
-            assert apple_icon_href == "/icons/apple-touch-icon.png"
-            apple_icon_response = page.request.get(f"{manifest_server}{apple_icon_href}")
+            assert apple_icon_href == "./icons/apple-touch-icon.png"
+            apple_icon_resolved = page.eval_on_selector(
+                'link[rel="apple-touch-icon"]', "el => el.href"
+            )
+            assert apple_icon_resolved == f"{manifest_server}/icons/apple-touch-icon.png"
+            apple_icon_response = page.request.get(apple_icon_resolved)
             assert apple_icon_response.ok
 
             # Theme-color meta tags still present and correctly tracking the live color scheme

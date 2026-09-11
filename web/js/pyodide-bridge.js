@@ -5,7 +5,7 @@
 // inside that runtime -- this file contains no financial logic of its own, only plumbing.
 //
 // Loading sequence mirrors the pattern `tests/test_pyodide_vendor.py` already proved offline
-// (WP-11): a global `loadPyodide()` (from a classic `<script src="/vendor/pyodide/pyodide.js">`
+// (WP-11): a global `loadPyodide()` (from a classic `<script src="./vendor/pyodide/pyodide.js">`
 // tag loaded by the page *before* this module, since Pyodide's own loader is not itself an ES
 // module) -> `pyodide.loadPackage()` for the vendored `micropip` wheel -> `micropip.install(
 // [...], deps=False)` against the vendored `openpyxl`/`et_xmlfile`/`fina` wheel paths. Nothing
@@ -13,7 +13,13 @@
 //
 // Callers (WP-13's shell): `import { sniffFile, runBuild } from "./pyodide-bridge.js"`.
 
-const VENDOR_BASE = "/vendor";
+// Resolved relative to this module's own URL (like BRIDGE_PY_URL below), never root-relative --
+// a root-relative "/vendor" is only correct when the app is served from the origin's root,
+// which is false for a GitHub Pages *project* site (served under "/<repo-name>/"). A real
+// deployment under such a subpath surfaced this exact bug: every absolute "/..." path in this
+// file/index.html/manifest.json/sw-register.js 404'd, so picking a file did nothing (Pyodide
+// never finished booting, silently, since nothing here surfaced that failure to the UI either).
+const VENDOR_BASE = new URL("../vendor", import.meta.url).href;
 const PYODIDE_INDEX_URL = `${VENDOR_BASE}/pyodide/`;
 const WHEEL_PATHS = {
   micropip: `${VENDOR_BASE}/wheels/micropip-0.11.1-py3-none-any.whl`,
@@ -32,7 +38,7 @@ async function _bootPyodide() {
   if (typeof loadPyodide !== "function") {
     throw new Error(
       "pyodide-bridge.js: the global loadPyodide() function is not defined -- the page must " +
-        'load "/vendor/pyodide/pyodide.js" with a classic <script> tag before this module ' +
+        'load "./vendor/pyodide/pyodide.js" with a classic <script> tag before this module ' +
         "runs (Pyodide's own loader script is not an ES module and cannot be imported here)."
     );
   }

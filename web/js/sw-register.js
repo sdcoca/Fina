@@ -62,7 +62,13 @@ async function _registerServiceWorker() {
     }
   });
 
-  const registration = await navigator.serviceWorker.register("/service-worker.js");
+  // Relative, not root-relative: "/service-worker.js" only works when the app is served from
+  // the origin's root, which a GitHub Pages *project* site (served under "/<repo-name>/") is
+  // not -- a real deployment surfaced exactly this (see pyodide-bridge.js's VENDOR_BASE comment
+  // for the sibling bug this shares). A relative path here also gives the correct default scope
+  // (this script's own directory), matching the app's real root, without passing `scope`
+  // explicitly.
+  const registration = await navigator.serviceWorker.register("./service-worker.js");
 
   // A worker may already be sitting in "waiting" from an update that finished installing
   // before this particular page load (e.g. it happened while this tab was inactive) -- surface
