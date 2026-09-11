@@ -182,7 +182,9 @@ contain); code, comments, test names and docs are English.
 | T-103 | Field-by-field assertion of row 6 (`DIVIDEND` with FX metadata) | R-6.2, R-2.7 |
 | T-104 | Dividend row does **not** populate `quantity` (phantom-shares guard) | R-6.2a |
 | T-105 | `account` is `"positions"` for TRADING/DELIVERY, `"cash"` otherwise | R-6.4 |
-| T-106 | All 10 `(category,type)` pairs map as specified (parametrized) | R-6.5 |
+| T-106 | All 12 `(category,type)` pairs map as specified (parametrized) | R-6.5 |
+| T-106a | Bond redemption pair (`CORPORATE_ACTION`/`FULL_CALL` + `CASH`/`FINAL_MATURITY`) end to end: both legs `REDEMPTION`, correct account/quantity/amount/cash_effect, excluded from `SAVINGS_FLOW_ELIGIBLE_TYPES` | R-2.5a, R-6.4, R-6.5 |
+| T-106b | A `CORPORATE_ACTION` row's `amount` may be absent (defaults to 0); one with `amount` present still parses it normally | R-6.6a |
 | T-107 | Unknown `(category,type)` raises `UnknownMovementError` with the observed pair | R-6.6, R-5.3 |
 | T-108 | `DELIVERY` + non-`MIGRATION` type raises | R-6.15 |
 | T-109 | `CUSTOMER_INBOUND` leaves classification to §3 (still pre-classified external at adapter output) | R-6.7, R-5.2 |
@@ -295,7 +297,7 @@ contain); code, comments, test names and docs are English.
 | T-401c | An account with no `declared_balance` at all (broker) still falls back to raw summation from zero, unchanged, still carrying R-8.4's unverified warning | R-9.1, R-8.4 |
 | T-402 | `quantity_held` excludes `TECHNICAL_ADJUSTMENT` rows | R-9.2, R-2.5 |
 | T-403 | Holdings match §12.2 exactly (IBM 10, MSFT 10.15, BTC 0.022, bond 50, fund 30) | §12.2 |
-| T-404 | `savings_flow` contribution parametrized over all 13 movement types | R-9.5, R-2.3 |
+| T-404 | `savings_flow` contribution parametrized over all 14 movement types | R-9.5, R-2.3 |
 | T-405 | Internal transfers contribute 0 | R-9.5, §12.3 |
 | T-406 | `DIVIDEND`/`INTEREST` contribute 0 | R-9.5 |
 | T-407 | Broker fixture `savings_flow` total = `+3500.00` | §12.3 |
@@ -408,6 +410,7 @@ packages land; a work package is not done until its rules appear here.
 | R-2.3 | T-058, T-311, T-404 |
 | R-2.4 | T-059 |
 | R-2.5 | T-402 |
+| R-2.5a | T-058, T-106a |
 | R-2.6 | T-052..T-058 |
 | R-2.7 | T-055, T-056, T-103 |
 | R-2.8 | T-221 |
@@ -438,9 +441,10 @@ packages land; a work package is not done until its rules appear here.
 | R-6.2 | T-101, T-102, T-103, `test_full_field_propagation_on_a_plain_row` |
 | R-6.2a | T-067, T-104 |
 | R-6.3 | T-111 |
-| R-6.4 | T-105 |
-| R-6.5 | T-106 |
+| R-6.4 | T-105, T-106a |
+| R-6.5 | T-106, T-106a |
 | R-6.6 | T-107 |
+| R-6.6a | T-106b |
 | R-6.7 | T-109 |
 | R-6.8 | T-110 |
 | R-6.9 | T-403 |

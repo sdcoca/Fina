@@ -213,9 +213,16 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
             assert pre_wipe_cache["chartHtml"].encode("utf-8") == native_bank_chart
 
             # --- 3. Export backup; capture the real downloaded bytes. ---
-            with page.expect_download() as download_info:
+            # The download now happens in a separate popup window (opened synchronously in the
+            # click handler, written to once the async Pyodide/zip work finishes) -- a real-
+            # device bug fix (see backup.js's own _downloadInWindow docstring): a plain
+            # anchor.click() issued after that async work was silently ignored on a real mobile
+            # browser, with no error and no download. The download event now fires on that
+            # popup page, not the main `page`, so it must be awaited there.
+            with context.expect_page() as popup_info:
                 page.locator("#export-backup-button").click()
-            download = download_info.value
+            popup = popup_info.value
+            download = popup.wait_for_event("download", timeout=60_000)
             backup_path = tmp_path / "captured_backup.zip"
             download.save_as(str(backup_path))
             assert backup_path.stat().st_size > 0

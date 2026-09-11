@@ -448,3 +448,67 @@ survived, same mutant IDs). `pipeline.py` alone: **175 mutants, 170 killed, 5 su
 
 Excluding the 42 documented equivalents, the real kill rate across the entire project is
 2568/2568 = 100%.
+
+## Bond redemption fix (`models.py` — added `MovementType.REDEMPTION`; `broker_csv.py` —
+maps `("CORPORATE_ACTION", "FULL_CALL")`/`("CASH", "FINAL_MATURITY")` to it, allows `amount`
+and `currency` to be absent on `CORPORATE_ACTION` rows)
+
+Found on the project owner's own real Trade Republic export (WP-18 real-device testing): a
+bond's early redemption arrives as two separate rows the adapter didn't recognize at all
+(`UnknownMovementError`). See R-2.5a/R-6.4/R-6.5/R-6.6a in `docs/spec/section1-ingestion-spec.md`
+for the full rule text and rationale — including why the fix is a new `MovementType.REDEMPTION`,
+not a reuse of `SELL` as first attempted: `LedgerEntry`'s own R-2.11 invariant requires a `SELL`
+row to carry both `amount_eur > 0` and `quantity < 0` on the *same* row, which this two-row
+source shape cannot satisfy for either leg — caught by this project's own test suite before
+ever shipping, when the first (SELL-based) attempt failed `test_bond_full_call_redemption_pair_end_to_end`
+on `LedgerEntry.__post_init__`'s invariant check.
+
+`MovementType.REDEMPTION` added no new mutant to the enum declaration itself (a `str` value,
+not executable logic); `compute_cash_effect`'s existing final `return amount_eur` branch
+(R-2.6's "otherwise" case) already covers it with zero code changes there — confirmed by
+`test_t058_cash_effect_exhaustive_over_all_movement_types[MovementType.REDEMPTION]` passing
+immediately. `broker_csv.py`'s two new `_MOVEMENT_MAP` entries and the `amount`/`currency`
+absent-on-`CORPORATE_ACTION` carve-outs generated new mutants in `_parse_row`, all killed by
+the new tests in `tests/test_broker_csv.py` (`test_bond_full_call_redemption_pair_end_to_end`,
+`test_corporate_action_row_with_amount_present_still_parses`,
+`test_corporate_action_row_with_blank_currency_does_not_raise`,
+`test_corporate_action_row_with_wrong_currency_still_raises`) except one, already documented
+above under WP-4 — its ID shifted from `x__parse_row__mutmut_73` to `x__parse_row__mutmut_81`
+purely because of added code earlier in the same function (confirmed via `mutmut show`: byte-
+identical diff, same `is_migration = ... and ... ` → `... or ...` mutation, same equivalence
+reasoning, since `"MIGRATION"` still appears in `_MOVEMENT_MAP` exactly once, paired only with
+`"DELIVERY"` — the two new map entries added neither `"DELIVERY"` nor `"MIGRATION"` as a value).
+
+**A second, real gap found and fixed in the same round**: `pyproject.toml`'s
+`pytest_add_cli_args_test_selection` only excluded `test_pwa_shell.py` from mutmut's own test
+runner (added at WP-13) — every later `test_pwa_*.py`/`test_pyodide_*.py` file (WP-14 onward)
+was never added, so this session's first mutmut attempt failed outright (`test_pwa_backup.py`'s
+`shell_server` fixture asserting `(WEB_DIR / "index.html").is_file()`, which is never true
+inside mutmut's own `mutants/` tree — it mirrors only `src/fina`, never `web/`). Fixed by adding
+every remaining browser-dependent test file to that ignore list (none of them exercise unique
+`src/fina` lines beyond what the fast non-browser suites already cover, the same rationale
+already documented for `test_render_browser.py`/`test_pwa_shell.py`).
+
+Full run (with the corrected test selection): **2623 mutants generated, 2580 killed, 42
+survived, 1 timeout** (up from 2610/2568/42/0 — 13 more mutants generated: `models.py`
+46→46 unchanged since `REDEMPTION` added no executable logic, `broker_csv.py` 609 total now;
+the +1 timeout is `fina.io_utils.x_read_csv_table__mutmut_12`, an environment-load artifact of
+this particular run, not a new code path — `io_utils.py` is not one of G-3's threshold-gated
+modules). Per-module kill rates for every G-3-gated module, computed from this run:
+
+| Module | Threshold | Total | Survived | Kill rate |
+|---|---|---|---|---|
+| `money.py` | ≥95% | 118 | 1 | 99.15% |
+| `models.py` | ≥95% | 46 | 2 | 95.65% |
+| `reconciliation.py` | ≥95% | 94 | 1 | 98.94% |
+| `section1.py` | ≥95% | 205 | 2 | 99.02% |
+| `adapters/bank_xlsx.py` | ≥90% | 645 | 9 | 98.60% |
+| `adapters/broker_csv.py` | ≥90% | 609 | 6 | 99.01% |
+| `classification.py` | ≥90% | 111 | 0 | 100% |
+| `pipeline.py` | ≥90% | 175 | 5 | 97.14% |
+
+All thresholds met. Every survivor in this run matches an ID already documented somewhere
+above (accounting for the one `_73`→`_81` renumbering explained above) — no new,
+undocumented survivor exists. Excluding all 42 documented equivalents (and the 1 timeout,
+which is not a real survivor), the real kill rate across the entire project is
+2580/2580 = 100%.

@@ -74,10 +74,28 @@ _MOVEMENT_MAP: dict[tuple[str, str], MovementType] = {
     ("TRADING", "BUY"): MovementType.BUY,
     ("TRADING", "SELL"): MovementType.SELL,
     ("DELIVERY", "MIGRATION"): MovementType.TECHNICAL_ADJUSTMENT,
+    # A bond's early redemption ("Full Call"), found on a real Trade Republic export: unlike an
+    # ordinary sale (one TRADING/SELL row with both `shares` and `amount` populated together),
+    # Trade Republic books this as two separate rows for the same event -- this one (the
+    # positions-side leg: negative `shares`, no `amount`) and a companion ("CASH",
+    # "FINAL_MATURITY") row (the cash-side leg: the redemption proceeds as `amount`, no
+    # `shares`). Both are classified as REDEMPTION (R-2.5a), a dedicated type -- NOT `SELL`:
+    # `LedgerEntry`'s own R-2.11 invariant requires a SELL row to carry `amount_eur > 0` AND
+    # `quantity < 0` together on the *same* row, which this two-row source shape cannot satisfy
+    # (confirmed the hard way: an earlier attempt at this fix that mapped both legs to `SELL`
+    # failed that very invariant during testing, before ever shipping). Also NOT
+    # `TECHNICAL_ADJUSTMENT`, whose cash effect is forced to zero (R-2.6) and would incorrectly
+    # discard the cash-side leg's real proceeds. `REDEMPTION` is not in
+    # `SAVINGS_FLOW_ELIGIBLE_TYPES` (models.py), so neither leg is ever miscounted as external
+    # savings (CLAUDE.md rule 13).
+    ("CORPORATE_ACTION", "FULL_CALL"): MovementType.REDEMPTION,
+    ("CASH", "FINAL_MATURITY"): MovementType.REDEMPTION,
 }
 
-#: R-6.4: account is "positions" for these categories, "cash" otherwise.
-_POSITIONS_CATEGORIES = frozenset({"TRADING", "DELIVERY"})
+#: R-6.4: account is "positions" for these categories, "cash" otherwise. CORPORATE_ACTION joins
+#: TRADING/DELIVERY here for the same reason DELIVERY does: its `shares` value is a real
+#: position-quantity change, not a `raw`-only field (R-6.2a's own "phantom shares" warning).
+_POSITIONS_CATEGORIES = frozenset({"TRADING", "DELIVERY", "CORPORATE_ACTION"})
 
 
 @dataclass(frozen=True)
@@ -269,8 +287,14 @@ def _parse_row(fields: dict[str, str], source_row: int, source_file: str) -> _Pa
             observed=f"category={category!r}, type={type_!r}",
         )
 
+    # The positions-side leg of a bond's early redemption (R-2.5a/R-6.6a) has no monetary amount
+    # at all -- the proceeds are booked on its companion ("CASH", "FINAL_MATURITY") row instead
+    # -- so its own `currency` field is empty too, on a real Trade Republic export: there is no
+    # amount for a currency to describe. Scoped to `CORPORATE_ACTION` specifically (not "any row
+    # with a blank amount"), so an actual data anomaly on any other category still raises rather
+    # than being silently accepted.
     currency = fields["currency"].strip()
-    if currency != "EUR":
+    if currency != "EUR" and not (category == "CORPORATE_ACTION" and currency == ""):
         raise UnsupportedCurrencyError(
             source_file=source_file, source_row=source_row, currency=currency
         )
@@ -297,10 +321,15 @@ def _parse_row(fields: dict[str, str], source_row: int, source_file: str) -> _Pa
     account = "positions" if category in _POSITIONS_CATEGORIES else "cash"
 
     is_migration = category == "DELIVERY" and type_ == "MIGRATION"
+    # The positions-side leg of a bond's early redemption (R-6.5's own comment on
+    # ("CORPORATE_ACTION", "FULL_CALL")) genuinely has no `amount` -- the proceeds are booked on
+    # its companion ("CASH", "FINAL_MATURITY") row instead -- so, like a MIGRATION row, its
+    # amount is allowed to be absent here rather than treated as a malformed row.
+    amount_may_be_absent = is_migration or category == "CORPORATE_ACTION"
     amount_eur = _parse_optional_decimal(
         fields, "amount", source_file=source_file, source_row=source_row
     )
-    if amount_eur is None and not is_migration:
+    if amount_eur is None and not amount_may_be_absent:
         raise ParseError(
             source_file=source_file,
             source_row=source_row,

@@ -58,6 +58,40 @@ function _downloadBlob(blob, filename) {
 }
 
 /**
+ * Downloads `blob` as `filename` through an anchor built directly in `win`'s own document (a
+ * window opened earlier, before any async work -- see this function's callers), rather than an
+ * anchor in the current page's document.
+ *
+ * Why this exists (a real bug found on a real device, not a hypothetical): `exportBackupToFile`
+ * below must `await` real async work (reading rawFiles from IndexedDB, then Pyodide building the
+ * zip via bridge.py) before any bytes exist to download. On a real mobile browser, a plain
+ * `anchor.click()` issued *after* that await -- even a fast one, appended to the current page's
+ * own `<body>` -- was observed to be silently ignored: no download, no error, no exception
+ * thrown, nothing for the user to act on beyond "I tap Export backup and nothing happens." The
+ * browser's own download/popup safeguards require the triggering action to still be tied to a
+ * "fresh" user gesture, and that gesture had already expired by the time the async work finished.
+ *
+ * The fix: `win` is opened *synchronously*, as the very first statement in `exportBackupToFile`
+ * -- an async function's body runs synchronously up to its first `await`, so that `window.open`
+ * call is still part of the original click's own call stack and gesture, exactly like any other
+ * `window.open()` a click handler might call directly. A window opened this way keeps its own
+ * activation independent of the opener's, so building and clicking the anchor *inside that
+ * window's own document* (not the opener's) once the bytes are finally ready still works
+ * reliably -- confirmed directly against a real download event, not assumed; an earlier attempt
+ * at this same fix that instead serialized the anchor via `document.write()` into the popup did
+ * NOT reliably trigger a download and was replaced by this direct-DOM-API approach.
+ */
+function _downloadInWindow(win, blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = win.document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  win.document.body.appendChild(anchor);
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/**
  * Reads every stored raw file (active and inactive alike) from `storage.js`, builds a backup
  * archive via the Pyodide bridge's `exportBackup()` (Python stdlib `zipfile`), and saves it
  * through the browser's ordinary download mechanism (`URL.createObjectURL` + a programmatic
@@ -73,6 +107,15 @@ function _downloadBlob(blob, filename) {
  *   was nothing stored yet -- the archive is still produced and downloaded, just empty).
  */
 export async function exportBackupToFile() {
+  // Opened synchronously, as the very first statement -- see _downloadInWindow's own docstring
+  // for exactly why. `window.open` can itself return null (a popup blocker, or a browser/context
+  // that simply doesn't support it) -- handled below by falling back to an in-page anchor
+  // download, which is what this function did unconditionally before this fix.
+  const backupWindow =
+    typeof window !== "undefined" && typeof window.open === "function"
+      ? window.open("", "_blank")
+      : null;
+
   const records = await storage.getAllFilesWithBytes();
   const zipBytes = await exportBackup(
     records.map((r) => ({
@@ -85,21 +128,37 @@ export async function exportBackupToFile() {
   const blob = new Blob([zipBytes], { type: "application/zip" });
   const filename = _backupFilename();
 
+  // The Web Share API is tried first as a progressive enhancement -- but it strictly requires
+  // "transient" user activation (spec, not this app's own choice), which the awaits above have
+  // near-certainly already consumed by this point on a real device. Kept anyway for the rare
+  // case a fast Pyodide/zip step leaves it still valid; any failure (including the now-expected
+  // "must be handling a user gesture" rejection) falls straight through to the window opened
+  // above, never leaving the user with a silently-do-nothing button.
   if (typeof navigator !== "undefined" && typeof navigator.canShare === "function") {
     try {
       const file = new File([blob], filename, { type: "application/zip" });
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: filename });
+        if (backupWindow && !backupWindow.closed) {
+          backupWindow.close();
+        }
         return records.length;
       }
     } catch {
-      // Share was cancelled, declined, or failed for some platform-specific reason -- fall
-      // through to the ordinary anchor-download below rather than leaving the user with no
-      // backup saved at all.
+      // Share was cancelled, declined, or (the expected/common case here) failed because the
+      // user gesture had already expired -- fall through to the window-based download below.
     }
   }
 
-  _downloadBlob(blob, filename);
+  if (backupWindow && !backupWindow.closed) {
+    _downloadInWindow(backupWindow, blob, filename);
+  } else {
+    // window.open was blocked or unsupported -- the plain in-page anchor trigger is what this
+    // function always did before this fix; still correct when the gesture genuinely does carry
+    // through (desktop browsers are generally far more lenient here than mobile ones), and the
+    // best remaining option when there is no open window to write into.
+    _downloadBlob(blob, filename);
+  }
   return records.length;
 }
 

@@ -128,6 +128,7 @@ _EXPECTED_CASH_EFFECT: dict[MovementType, Decimal] = {
     MovementType.EXPENSE: Decimal("1.23"),
     MovementType.PAYROLL_INCOME: Decimal("1.23"),
     MovementType.TECHNICAL_ADJUSTMENT: Decimal("0"),
+    MovementType.REDEMPTION: Decimal("1.23"),
 }
 
 

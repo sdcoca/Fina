@@ -257,6 +257,7 @@ faithful without re-opening the source file.)*
 | `RSU_VESTING` | n/a (D3) | yes (+) | yes (D3) | no (`None`) |
 | `ESPP_PURCHASE` | n/a (D3) | yes (+) | yes (D3) | no (`None`) |
 | `TECHNICAL_ADJUSTMENT` | no (forced 0) | **no — skipped entirely** | no | no (`None`) |
+| `REDEMPTION` | yes | yes (−), positions leg only | no | no (`None`) |
 
 **R-2.4** `RSU_VESTING` and `ESPP_PURCHASE` MUST exist in the enum but MUST NOT be produced
 by any adapter in this iteration (D3). Any code path that would produce them raises
@@ -265,6 +266,20 @@ by any adapter in this iteration (D3). Any code path that would produce them rai
 **R-2.5** `TECHNICAL_ADJUSTMENT` rows MUST be excluded from holdings computation entirely
 (not merely netted against their pair). *(rationale: a future FIFO engine must never open or
 close a lot because of them; netting to zero would still perturb per-lot bookkeeping.)*
+
+**R-2.5a** `REDEMPTION` exists for a security's principal being returned outside an ordinary
+sale -- found on a real Trade Republic export as two separate rows for one economic event (a
+bond's early call/final maturity): a positions-side row (negative `quantity`, no `amount`) and
+a cash-side row (`amount` = the redemption proceeds, no `quantity`). Both rows are tagged
+`REDEMPTION`, never `SELL` -- R-2.11 requires a `SELL` entry to carry both `amount_eur > 0`
+and `quantity < 0` together on the *same* row, which this two-row source shape cannot satisfy
+-- and never `TECHNICAL_ADJUSTMENT`, whose cash effect is forced to zero (R-2.6) and would
+incorrectly discard proceeds that did arrive. `REDEMPTION`'s own cash effect is a direct
+`amount_eur` passthrough (R-2.6's "otherwise" case), so the positions-side row (no `amount`,
+defaulted to `Decimal("0")` per R-2.2's own optional-field handling) contributes zero and the
+cash-side row contributes the real proceeds. *(rationale: this is Section 1's cash/net-worth
+treatment only -- whether a bond redemption is a taxable disposal event for FIFO/capital-gains
+purposes is a Section 2 (fiscal) question, out of scope until that section exists.)*
 
 ### 2.3 Cash effect
 
@@ -423,8 +438,8 @@ mapping in this adapter.)*
 
 **R-6.3** Empty string in a numeric column means "absent" (`None`), not zero.
 
-**R-6.4** `account` is `"positions"` when `category` is `TRADING` or `DELIVERY`, else
-`"cash"`.
+**R-6.4** `account` is `"positions"` when `category` is `TRADING`, `DELIVERY`, or
+`CORPORATE_ACTION`, else `"cash"`.
 
 ### 6.2 Movement mapping
 
@@ -442,8 +457,19 @@ mapping in this adapter.)*
 | `TRADING` | `BUY` | `BUY` |
 | `TRADING` | `SELL` | `SELL` |
 | `DELIVERY` | `MIGRATION` | `TECHNICAL_ADJUSTMENT` |
+| `CORPORATE_ACTION` | `FULL_CALL` | `REDEMPTION` (R-2.5a) |
+| `CASH` | `FINAL_MATURITY` | `REDEMPTION` (R-2.5a) |
 
 **R-6.6** Any other pair raises `UnknownMovementError`.
+
+**R-6.6a** `amount` MAY be absent (empty) on a `CORPORATE_ACTION` row -- unlike every other
+category, where an absent `amount` raises `ParseError` -- since a bond redemption's proceeds
+are booked entirely on its companion `("CASH", "FINAL_MATURITY")` row instead (R-2.5a). An
+absent `amount` here becomes `Decimal("0")`, the same optional-field default every other
+adapter field already uses. `currency` MAY likewise be absent on a `CORPORATE_ACTION` row
+(found on a real export: with no amount, there is nothing for a currency to describe) --
+scoped narrowly to that category so an actual currency anomaly on any other row still raises
+`UnsupportedCurrencyError` rather than being silently accepted.
 
 **R-6.7** `CUSTOMER_INBOUND` MUST NOT be assumed external despite its name; §3 decides.
 *(rationale: in real data these are usually the user funding the broker from their own bank,

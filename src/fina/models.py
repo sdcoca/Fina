@@ -20,7 +20,7 @@ Status = Literal["actual", "estimated"]
 
 
 class MovementType(Enum):
-    """The complete movement taxonomy (R-2.3). Exactly these 13 members."""
+    """The complete movement taxonomy (R-2.3). Exactly these 14 members."""
 
     EXTERNAL_DEPOSIT = "EXTERNAL_DEPOSIT"
     EXTERNAL_WITHDRAWAL = "EXTERNAL_WITHDRAWAL"
@@ -35,6 +35,16 @@ class MovementType(Enum):
     RSU_VESTING = "RSU_VESTING"
     ESPP_PURCHASE = "ESPP_PURCHASE"
     TECHNICAL_ADJUSTMENT = "TECHNICAL_ADJUSTMENT"
+    #: A security's principal being returned outside an ordinary sale (a bond's early call/final
+    #: maturity, found on a real Trade Republic export -- see broker_csv.py's own R-6.5 comment
+    #: on the ("CORPORATE_ACTION", "FULL_CALL")/("CASH", "FINAL_MATURITY") row pair). Distinct
+    #: from SELL because R-2.11 requires a SELL entry to carry both `amount_eur > 0` and
+    #: `quantity < 0` on the *same* row, which this two-row-per-event source shape cannot
+    #: satisfy; distinct from TECHNICAL_ADJUSTMENT because that type's cash_effect is always
+    #: zero (R-2.6), which would incorrectly discard real proceeds that did arrive. Like
+    #: DIVIDEND/INTEREST, its cash_effect is a direct amount_eur passthrough (R-2.6) and it is
+    #: not in SAVINGS_FLOW_ELIGIBLE_TYPES below (R-9.5) -- never counted as external savings.
+    REDEMPTION = "REDEMPTION"
 
 
 #: Movement types deferred to a future iteration (D3): must never be produced (R-2.4).

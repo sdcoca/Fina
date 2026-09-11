@@ -18,7 +18,7 @@ from fina.errors import (
     UnknownMovementError,
     UnsupportedCurrencyError,
 )
-from fina.models import AdapterResult, MovementType
+from fina.models import SAVINGS_FLOW_ELIGIBLE_TYPES, AdapterResult, MovementType
 
 FIXTURE_HOLDER = "FERNANDEZ ORTIZ LUCIA"
 
@@ -195,6 +195,21 @@ def test_t105_account_positions_vs_cash(tmp_path: Path) -> None:
             {"shares": "-10", "price": "1", "amount": "10"},
             MovementType.SELL,
         ),
+        # A bond's early redemption ("Full Call", found on a real Trade Republic export): the
+        # positions-side leg has no `amount` at all (R-6.5's own comment on this pair), so this
+        # case deliberately overrides it to "" rather than leaving _base_row's default "100.00"
+        # -- amount being genuinely absent here must not raise, unlike every other category.
+        (
+            "CORPORATE_ACTION",
+            "FULL_CALL",
+            {"shares": "-97.97", "amount": ""},
+            MovementType.REDEMPTION,
+        ),
+        # The companion cash-side leg of the same event: an ordinary CASH-category row shape
+        # (amount present, no shares), classified as the same dedicated type -- not SELL, which
+        # R-2.11's own invariant (amount>0 AND quantity<0 on the SAME row) cannot accommodate
+        # for either leg of this two-row event (see R-6.5's own comment in broker_csv.py).
+        ("CASH", "FINAL_MATURITY", {"amount": "97.97"}, MovementType.REDEMPTION),
     ],
 )
 def test_t106_movement_mapping_pairs(
@@ -234,6 +249,72 @@ def test_t106_migration_pair_maps_to_technical_adjustment(tmp_path: Path) -> Non
     ]
     result = _parse(tmp_path, rows)
     assert all(e.movement_type is MovementType.TECHNICAL_ADJUSTMENT for e in result.entries)
+
+
+def test_bond_full_call_redemption_pair_end_to_end(tmp_path: Path) -> None:
+    """A real-world case (found on the project owner's own, real Trade Republic export, not
+    invented): a bond's early redemption arrives as two separate rows for one event -- see
+    R-6.5/R-2.5a's own comments for the full reasoning, including why this is REDEMPTION, not
+    SELL (R-2.11's same-row amount+quantity invariant cannot be satisfied by either leg of a
+    two-row event). Together the pair must still behave like a disposal economically: the
+    position decreases by the redeemed quantity, cash increases by the proceeds, and neither
+    leg is ever counted as external savings (R-9.5/SAVINGS_FLOW_ELIGIBLE_TYPES).
+    """
+    rows = [
+        _base_row(
+            category="CORPORATE_ACTION",
+            type="FULL_CALL",
+            symbol="FR001400F0U6",
+            asset_class="BOND",
+            shares="-97.97",
+            amount="",
+            date="2023-03-01",
+            datetime="2023-03-01T13:14:40Z",
+        ),
+        _base_row(
+            category="CASH",
+            type="FINAL_MATURITY",
+            symbol="FR001400F0U6",
+            asset_class="BOND",
+            amount="97.97",
+            date="2023-03-01",
+            datetime="2023-03-01T17:33:28Z",
+        ),
+    ]
+    result = _parse(tmp_path, rows)
+    positions_leg, cash_leg = result.entries
+
+    assert positions_leg.movement_type is MovementType.REDEMPTION
+    assert positions_leg.account == "positions"
+    assert positions_leg.quantity == Decimal("-97.97")
+    # The proceeds are booked entirely on the companion cash-side row -- this leg's own amount
+    # (absent in the source) becomes exactly 0, per compute_cash_effect(REDEMPTION, 0, None)'s
+    # direct amount_eur passthrough (R-2.6's "otherwise" case).
+    assert positions_leg.amount_eur == 0
+    assert positions_leg.cash_effect_eur == 0
+
+    assert cash_leg.movement_type is MovementType.REDEMPTION
+    assert cash_leg.account == "cash"
+    assert cash_leg.quantity is None
+    assert cash_leg.amount_eur == Decimal("97.97")
+    assert cash_leg.cash_effect_eur == Decimal("97.97")
+
+    # R-9.5: REDEMPTION is not in SAVINGS_FLOW_ELIGIBLE_TYPES -- neither leg is ever eligible to
+    # be counted as external savings, whatever is_external_flow ends up being classified as.
+    assert MovementType.REDEMPTION not in SAVINGS_FLOW_ELIGIBLE_TYPES
+
+
+def test_corporate_action_row_with_amount_present_still_parses(tmp_path: Path) -> None:
+    """The amount-optional carve-out (R-6.5) only means CORPORATE_ACTION rows are *allowed* to
+    omit `amount` -- one that genuinely has a value (not every corporate action necessarily
+    omits it) must still be read and used normally, not silently ignored or zeroed.
+    """
+    row = _base_row(
+        category="CORPORATE_ACTION", type="FULL_CALL", shares="-5", amount="12.34"
+    )
+    result = _parse(tmp_path, [row])
+    assert result.entries[0].amount_eur == Decimal("12.34")
+    assert result.entries[0].cash_effect_eur == Decimal("12.34")
 
 
 def test_t107_unknown_pair_raises(tmp_path: Path) -> None:
@@ -527,6 +608,29 @@ def test_t116_non_eur_currency_raises(tmp_path: Path) -> None:
     assert err.source_file == "badcurrency.csv"
     assert err.source_row == 2
     assert err.currency == "USD"
+
+
+def test_corporate_action_row_with_blank_currency_does_not_raise(tmp_path: Path) -> None:
+    """R-6.6a: a `CORPORATE_ACTION` row's `currency` may be blank (found on a real Trade
+    Republic export, alongside its blank `amount` -- there is nothing for a currency to
+    describe). A genuinely wrong (non-EUR, non-blank) currency on the same category must still
+    raise -- this exemption is for "absent", not "any value goes".
+    """
+    row = _base_row(
+        category="CORPORATE_ACTION", type="FULL_CALL", shares="-1", amount="", currency=""
+    )
+    result = _parse(tmp_path, [row])
+    assert result.entries[0].currency == ""
+
+
+def test_corporate_action_row_with_wrong_currency_still_raises(tmp_path: Path) -> None:
+    row = _base_row(
+        category="CORPORATE_ACTION", type="FULL_CALL", shares="-1", amount="", currency="USD"
+    )
+    path = broker_csv_with(tmp_path, mutate_rows=[row], filename="corpaction_badcurrency.csv")
+    with pytest.raises(UnsupportedCurrencyError) as exc_info:
+        broker_csv.parse(path)
+    assert exc_info.value.currency == "USD"
 
 
 # ---------------------------------------------------------------------------

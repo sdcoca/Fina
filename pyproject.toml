@@ -82,14 +82,25 @@ source_paths = ["src/fina"]
 # browser per test to verify *rendering* behaviour (screenshots, PDF export), which every
 # mutant re-running the whole suite would make prohibitively slow for no unique Python line
 # coverage -- section1_chart.py's own code is fully covered by test_section1_chart.py alone.
-# test_pwa_shell.py (WP-13) is excluded for the identical reason: it drives a real headless
-# browser through the whole PWA shell (Pyodide cold boot included) per test case, and every
-# `src/fina` line it exercises (run_pipeline, round_half_up, ...) is already fully covered by
-# far faster non-browser suites (test_pipeline.py, test_money.py, ...).
+# Every test_pwa_*.py / test_pyodide_*.py file (WP-11..WP-17+) is excluded for the identical
+# reason: each drives a real headless browser through some slice of the PWA/Pyodide layer
+# (Pyodide cold boot included in most), and every `src/fina` line any of them exercises
+# (run_pipeline, round_half_up, ...) is already fully covered by far faster non-browser suites
+# (test_pipeline.py, test_money.py, ...) -- none of these files add unique `src/fina` coverage.
+# They also cannot run at all under mutmut's own mutants/ tree (which mirrors only `src/fina`,
+# never `web/`), a real gap only test_pwa_shell.py's own addition here had closed as of WP-13;
+# this list is now kept in sync with every browser-dependent test file, not just that one.
 pytest_add_cli_args_test_selection = [
     "tests",
     "--ignore=tests/test_gates_meta.py",
     "--ignore=tests/test_render_browser.py",
     "--ignore=tests/test_pwa_shell.py",
+    "--ignore=tests/test_pwa_manifest.py",
+    "--ignore=tests/test_pwa_storage.py",
+    "--ignore=tests/test_pwa_service_worker.py",
+    "--ignore=tests/test_pwa_backup.py",
+    "--ignore=tests/test_pwa_subpath_deployment.py",
+    "--ignore=tests/test_pyodide_bridge.py",
+    "--ignore=tests/test_pyodide_vendor.py",
 ]
 runner = "python -m pytest -x -q"

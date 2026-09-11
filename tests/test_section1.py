@@ -345,11 +345,11 @@ def test_t403_holdings_match_the_oracle_exactly() -> None:
 # ---------------------------------------------------------------------------
 
 _ALL_MOVEMENT_TYPES = list(MovementType)
-assert len(_ALL_MOVEMENT_TYPES) == 13
+assert len(_ALL_MOVEMENT_TYPES) == 14
 
 
 @pytest.mark.parametrize("movement_type", _ALL_MOVEMENT_TYPES)
-def test_t404_contribution_parametrized_over_all_13_movement_types(
+def test_t404_contribution_parametrized_over_all_14_movement_types(
     movement_type: MovementType,
 ) -> None:
     cash_effect = Decimal("42.00")
