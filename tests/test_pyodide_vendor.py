@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import http.server
 import threading
+import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -214,3 +215,67 @@ def test_unrecognized_wheel_url_is_not_silently_ignored(vendor_server: str) -> N
 
     assert result.get("ok") is False
     assert result.get("error")
+
+
+# ---------------------------------------------------------------------------
+# The vendored `fina` wheel must never silently drift from `src/fina`.
+# ---------------------------------------------------------------------------
+
+_SRC_FINA_DIR = Path(__file__).resolve().parents[1] / "src" / "fina"
+
+
+def test_vendored_fina_wheel_matches_current_src_fina_byte_for_byte() -> None:
+    """A real bug, not a hypothetical: `web/vendor/wheels/fina-*.whl` is a **snapshot**, built
+    once by `web/vendor/build.py` and committed -- it is NOT rebuilt automatically whenever
+    `src/fina` changes. A `src/fina` fix (this project's own bond-redemption classification fix,
+    found on a real device) was committed, fully gate-verified against the *source* tree, and
+    shipped -- while the PWA kept silently running the *old* wheel, because nothing rebuilt it.
+    The project owner's phone kept reproducing the "already-fixed" bug for two days before this
+    was diagnosed, purely from this staleness, with every other part of the deploy (the actual
+    GitHub Pages publish, the service worker, the shell) working exactly as intended.
+
+    This test closes that gap: it unzips the committed wheel and compares every `fina/**.py`
+    file inside it, byte-for-byte, against the corresponding file in the current `src/fina/`
+    checkout. Any mismatch (missing file, extra file, or differing content) fails loudly with
+    the exact filename, telling a developer to run `python3 web/vendor/build.py` before
+    committing -- rather than shipping a silently-stale wheel again.
+    """
+    assert _SRC_FINA_DIR.is_dir(), f"expected {_SRC_FINA_DIR} to exist"
+    wheel_path = _WHEELS_DIR / _FINA_WHEEL
+    assert wheel_path.is_file(), (
+        f"{wheel_path} is missing -- run `python3 web/vendor/build.py`"
+    )
+
+    src_py_files = {
+        p.relative_to(_SRC_FINA_DIR).as_posix(): p.read_bytes()
+        for p in _SRC_FINA_DIR.rglob("*.py")
+    }
+    assert src_py_files, f"expected at least one .py file under {_SRC_FINA_DIR}"
+
+    with zipfile.ZipFile(wheel_path) as zf:
+        wheel_py_files = {
+            name.removeprefix("fina/"): zf.read(name)
+            for name in zf.namelist()
+            if name.startswith("fina/") and name.endswith(".py")
+        }
+
+    missing_from_wheel = sorted(src_py_files.keys() - wheel_py_files.keys())
+    extra_in_wheel = sorted(wheel_py_files.keys() - src_py_files.keys())
+    assert missing_from_wheel == [], (
+        f"src/fina files missing from the vendored wheel (run `python3 web/vendor/build.py`): "
+        f"{missing_from_wheel}"
+    )
+    assert extra_in_wheel == [], (
+        f"vendored wheel contains files no longer in src/fina (run "
+        f"`python3 web/vendor/build.py`): {extra_in_wheel}"
+    )
+
+    differing = sorted(
+        relpath
+        for relpath, content in src_py_files.items()
+        if wheel_py_files[relpath] != content
+    )
+    assert differing == [], (
+        "the vendored fina wheel is stale relative to src/fina -- these files differ; run "
+        f"`python3 web/vendor/build.py` and commit the rebuilt wheel: {differing}"
+    )
