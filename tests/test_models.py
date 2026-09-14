@@ -366,6 +366,48 @@ def test_zero_amount_warnings_skips_nonzero_entries() -> None:
     assert check_zero_amount_warnings(SOURCE_FILE, [entry]) == ()
 
 
+def test_redemption_positions_leg_zero_amount_is_not_warned() -> None:
+    """R-2.5a: the positions-side leg of a REDEMPTION has amount_eur == 0 by construction
+    (the proceeds are on its companion cash-side leg), so it is exempt from R-2.16's warning.
+    """
+    entry = make_entry(
+        movement_type=MovementType.REDEMPTION,
+        account="positions",
+        amount_eur=Decimal("0"),
+        cash_effect_eur=Decimal("0"),
+        quantity=Decimal("-97.97"),
+    )
+    assert check_zero_amount_warnings(SOURCE_FILE, [entry]) == ()
+
+
+def test_redemption_cash_leg_zero_amount_is_still_warned() -> None:
+    """The exemption is scoped to the positions-side leg specifically: a zero amount on the
+    cash-side leg (the one that should carry the real proceeds) is still a genuine anomaly.
+    """
+    entry = make_entry(
+        movement_type=MovementType.REDEMPTION,
+        account="cash",
+        amount_eur=Decimal("0"),
+        cash_effect_eur=Decimal("0"),
+    )
+    warnings = check_zero_amount_warnings(SOURCE_FILE, [entry])
+    assert len(warnings) == 1
+
+
+def test_non_redemption_positions_leg_zero_amount_is_still_warned() -> None:
+    """The exemption keys on REDEMPTION *and* account == "positions" together, not on
+    account == "positions" alone.
+    """
+    entry = make_entry(
+        movement_type=MovementType.DIVIDEND,
+        account="positions",
+        amount_eur=Decimal("0"),
+        cash_effect_eur=Decimal("0"),
+    )
+    warnings = check_zero_amount_warnings(SOURCE_FILE, [entry])
+    assert len(warnings) == 1
+
+
 # ---------------------------------------------------------------------------
 # R-2.17: TECHNICAL_ADJUSTMENT cash-effect invariant
 # ---------------------------------------------------------------------------

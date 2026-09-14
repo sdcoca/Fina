@@ -489,6 +489,30 @@ every remaining browser-dependent test file to that ignore list (none of them ex
 `src/fina` lines beyond what the fast non-browser suites already cover, the same rationale
 already documented for `test_render_browser.py`/`test_pwa_shell.py`).
 
+## Warning-quality fix (`models.py` — R-2.16 exempts a REDEMPTION positions-leg's by-design
+zero `amount_eur`; `classification.py` — R-3.6's warning now names the counterparty IBAN)
+
+Found from the project owner's own real report output (WP-18 real-device testing): once the
+bond-redemption fix above shipped, every REDEMPTION positions-leg row correctly produced an
+`amount_eur == 0` warning under R-2.16 — but that zero is expected by construction (R-2.5a),
+not an anomaly, so the warning was pure noise the owner had no action to take on. Separately,
+R-3.6's stability-guard warning named the counterparty but not their IBAN, so identifying
+*which* missing account statement it pointed at required a manual lookup every time. Fixed by
+adding `_is_by_design_zero_amount` (keys on `movement_type is REDEMPTION and account ==
+"positions"` specifically, not the whole REDEMPTION type, so a genuine zero on the cash-side
+leg — which should carry the real proceeds — still warns), and by adding `counterparty_iban`
+to R-3.6's message text.
+
+`mutmut run` after this change: only 2 files mutated (`models.py`, `classification.py` —
+mutmut's own incremental detection skipped the other 15 unchanged modules). Zero new mutants
+in `classification.py` survived. `models.py` surfaced its two pre-existing, already-documented
+equivalents (`x_compute_entry_id__mutmut_4`/`_12`, see WP-1/WP-2 above) — unrelated to this
+change, same IDs, not renumbered — and no others; `_is_by_design_zero_amount` and the modified
+`check_zero_amount_warnings` are both fully killed, by
+`test_redemption_positions_leg_zero_amount_is_not_warned`,
+`test_redemption_cash_leg_zero_amount_is_still_warned`, and
+`test_non_redemption_positions_leg_zero_amount_is_still_warned`.
+
 Full run (with the corrected test selection): **2623 mutants generated, 2580 killed, 42
 survived, 1 timeout** (up from 2610/2568/42/0 — 13 more mutants generated: `models.py`
 46→46 unchanged since `REDEMPTION` added no executable logic, `broker_csv.py` 609 total now;

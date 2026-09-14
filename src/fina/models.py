@@ -255,11 +255,24 @@ def check_duplicate_transaction_ids(id_rows: Sequence[tuple[str, int]]) -> None:
             )
 
 
+def _is_by_design_zero_amount(entry: LedgerEntry) -> bool:
+    """R-2.5a: a REDEMPTION's positions-side leg has ``amount_eur == 0`` by construction --
+    the proceeds are booked on its companion cash-side leg instead (see broker_csv.py's own
+    R-6.5 comment). Scoped to ``account == "positions"`` specifically, not to the whole
+    REDEMPTION type: the cash-side leg is the one that carries the real proceeds, so a zero
+    there would still be a genuine anomaly worth surfacing under R-2.16.
+    """
+    return entry.movement_type is MovementType.REDEMPTION and entry.account == "positions"
+
+
 def check_zero_amount_warnings(
     source_file: str,
     entries: Sequence[LedgerEntry],
 ) -> tuple[Warning, ...]:
-    """R-2.16: ``amount_eur == 0`` is permitted but must be surfaced, never silent."""
+    """R-2.16: ``amount_eur == 0`` is permitted but must be surfaced, never silent -- except
+    the one case where it is expected by construction rather than a data anomaly (R-2.5a's
+    REDEMPTION positions-side leg).
+    """
     return tuple(
         Warning(
             message=f"amount_eur is exactly 0 for entry {entry.entry_id!r}",
@@ -267,5 +280,5 @@ def check_zero_amount_warnings(
             source_row=entry.source_row,
         )
         for entry in entries
-        if entry.amount_eur == 0
+        if entry.amount_eur == 0 and not _is_by_design_zero_amount(entry)
     )

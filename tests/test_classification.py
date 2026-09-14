@@ -326,8 +326,8 @@ def test_t308_external_row_matching_owned_holder_name_warns_but_stays_external()
     assert isinstance(warning, Warning)
     assert warning.message == (
         f"{entry.source_file}:{entry.source_row}: transfer from 'FERNANDEZ ORTIZ LUCIA' "
-        "classified external, but the name matches an owned account holder; a statement "
-        "for this account may not have been supplied"
+        "(IBAN 'ES0000000000000000000303') classified external, but the name matches an "
+        "owned account holder; a statement for this account may not have been supplied"
     )
     assert warning.source_file == entry.source_file
     assert warning.source_row == entry.source_row

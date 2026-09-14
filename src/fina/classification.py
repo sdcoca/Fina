@@ -86,9 +86,9 @@ def classify_entries(
                 Warning(
                     message=(
                         f"{entry.source_file}:{entry.source_row}: transfer {direction} "
-                        f"{entry.counterparty_name!r} classified external, but the name "
-                        "matches an owned account holder; a statement for this account may "
-                        "not have been supplied"
+                        f"{entry.counterparty_name!r} (IBAN {entry.counterparty_iban!r}) "
+                        "classified external, but the name matches an owned account holder; "
+                        "a statement for this account may not have been supplied"
                     ),
                     source_file=entry.source_file,
                     source_row=entry.source_row,
