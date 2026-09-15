@@ -387,6 +387,8 @@ def test_malformed_saldo_integration_exact_fields(tmp_path: Path) -> None:
         ("LIQUIDACION DE LAS TARJETAS DE CREDITO DEL CONTRATO 000", MovementType.EXPENSE),
         ("TRANSFERENCIA DE JUAN PEREZ", MovementType.EXTERNAL_DEPOSIT),
         ("TRANSFERENCIA A JUAN PEREZ", MovementType.EXTERNAL_WITHDRAWAL),
+        ("TRANSFERENCIA INMEDIATA DE JUAN PEREZ", MovementType.EXTERNAL_DEPOSIT),
+        ("TRANSFERENCIA INMEDIATA A JUAN PEREZ", MovementType.EXTERNAL_WITHDRAWAL),
         ("NOMINA EJEMPLO S.A.", MovementType.PAYROLL_INCOME),
         ("ABONO NOMINA EJEMPLO S.A.", MovementType.PAYROLL_INCOME),
     ],
@@ -479,6 +481,23 @@ def test_t215_transferencia_de_without_suffix(tmp_path: Path) -> None:
     path = bank_xlsx_with(tmp_path, mutate, filename="transdenosuffix.xlsx")
     result = bank_xlsx.parse(path)
     entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.counterparty_name == "JUAN PEREZ GARCIA"
+
+
+def test_transferencia_inmediata_de_with_concepto_suffix_strips_it(tmp_path: Path) -> None:
+    """Found on a real bank export: an instant/SEPA-Instant transfer's Concepto carries the
+    extra word "INMEDIATA" between "TRANSFERENCIA" and "DE", which previously fell through
+    every rule and raised UnknownMovementError, aborting the whole file.
+    """
+
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = "TRANSFERENCIA INMEDIATA DE JUAN PEREZ GARCIA, CONCEPTO Fondos Curso"
+        ws["D9"] = "1,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="transinmediatadesuffix.xlsx")
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.movement_type is MovementType.EXTERNAL_DEPOSIT
     assert entry.counterparty_name == "JUAN PEREZ GARCIA"
 
 

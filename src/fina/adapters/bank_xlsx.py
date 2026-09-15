@@ -214,9 +214,16 @@ def _cell_to_date(value: object, *, source_file: str, source_row: int, column: s
     )
 
 
-# R-7.10: ordered, first-match-wins rules over the normalized Concepto.
-_RULE_TRANSFERENCIA_DE = re.compile(r"^TRANSFERENCIA DE (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$")
-_RULE_TRANSFERENCIA_A = re.compile(r"^TRANSFERENCIA A (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$")
+# R-7.10: ordered, first-match-wins rules over the normalized Concepto. "INMEDIATA" (an
+# instant/SEPA-Instant transfer, found on a real bank export) is optional: it names the rail
+# the transfer travelled over, not a different kind of movement -- same EXTERNAL_DEPOSIT/
+# EXTERNAL_WITHDRAWAL classification either way.
+_RULE_TRANSFERENCIA_DE = re.compile(
+    r"^TRANSFERENCIA (?:INMEDIATA )?DE (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$"
+)
+_RULE_TRANSFERENCIA_A = re.compile(
+    r"^TRANSFERENCIA (?:INMEDIATA )?A (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$"
+)
 _RULE_NOMINA = re.compile(r"^(?:NOMINA|ABONO NOMINA)")
 
 

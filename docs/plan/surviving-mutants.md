@@ -513,6 +513,32 @@ change, same IDs, not renumbered — and no others; `_is_by_design_zero_amount` 
 `test_redemption_cash_leg_zero_amount_is_still_warned`, and
 `test_non_redemption_positions_leg_zero_amount_is_still_warned`.
 
+## Instant-transfer concept variant (`bank_xlsx.py` — R-7.10 rules 7/8 accept an optional
+`INMEDIATA` qualifier between `TRANSFERENCIA` and `DE`/`A`)
+
+Found on the project owner's own real bank export: a SEPA-Instant transfer's `Concepto` reads
+`TRANSFERENCIA INMEDIATA DE <name>, CONCEPTO <text>` — the extra word broke the exact-match
+regex entirely, raising `UnknownMovementError` and aborting the whole file. Fixed by making
+`INMEDIATA ` optional in both `_RULE_TRANSFERENCIA_DE`/`_RULE_TRANSFERENCIA_A`; same
+`EXTERNAL_DEPOSIT`/`EXTERNAL_WITHDRAWAL` classification either way, since it is the same kind
+of transfer, only a faster settlement rail.
+
+`mutmut run` after this change: only `bank_xlsx.py` mutated. Zero new survivors — the widened
+regexes' extra mutants are killed by
+`test_t212_each_concept_rule_matches_its_canonical_example`'s two new `INMEDIATA` cases and
+`test_transferencia_inmediata_de_with_concepto_suffix_strips_it`. The 9 pre-existing survivors
+reported (`_find_label_value__mutmut_8`/`_13`, `_parse_header_date__mutmut_5`/`_8`,
+`_find_movements_header_row__mutmut_6`/`_10`, `sniff__mutmut_10`, `parse__mutmut_16`,
+`_build_entry__mutmut_2`) are all already documented above under WP-5, unrelated to this
+change.
+
+**Scope note**: scanning the owner's full real bank export (not just the first failing row)
+found 262 additional distinct unrecognized `Concepto` patterns beyond this one — Bizum
+transfers, abbreviated-card-reference purchases (`TARJ.` vs `TARJETA`), purchase
+refunds/cancellations, ATM withdrawals, tax direct debits, and a few unclear singletons. None
+of those are fixed by this change; they are a separate, much larger work package pending the
+owner's classification decisions (see conversation), not silently absorbed here.
+
 Full run (with the corrected test selection): **2623 mutants generated, 2580 killed, 42
 survived, 1 timeout** (up from 2610/2568/42/0 — 13 more mutants generated: `models.py`
 46→46 unchanged since `REDEMPTION` added no executable logic, `broker_csv.py` 609 total now;

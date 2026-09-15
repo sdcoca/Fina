@@ -582,8 +582,8 @@ case-insensitive, accent-insensitive matching:
 | 4 | `RECIBO ` | `EXPENSE` |
 | 5 | `LIQUIDACION PERIODICA PRESTAMO` | `EXPENSE` (see `technical-decisions.md` §2) |
 | 6 | `LIQUIDACION DE LAS TARJETAS DE CREDITO` | `EXPENSE` (see R-7.12) |
-| 7 | `TRANSFERENCIA DE (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT` (pre-classification); `name` → `counterparty_name` |
-| 8 | `TRANSFERENCIA A (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL` (pre-classification); `name` → `counterparty_name` |
+| 7 | `TRANSFERENCIA (INMEDIATA )?DE (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT` (pre-classification); `name` → `counterparty_name` |
+| 8 | `TRANSFERENCIA (INMEDIATA )?A (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL` (pre-classification); `name` → `counterparty_name` |
 | 9 | `NOMINA` or `ABONO NOMINA` | `PAYROLL_INCOME` |
 
 **R-7.11** No match ⇒ `UnknownMovementError`, regardless of amount sign. A catch-all default

@@ -24,7 +24,7 @@
 // file changes (WP-11's vendor bundle, any web/css|js|icons file, web/py/bridge.py) so a stale
 // cache is never served and old caches actually get cleaned up on activate, rather than
 // silently accumulating forever. Do not hand-edit the string below.
-const CACHE_VERSION = "6cfea22a54a1c63d";
+const CACHE_VERSION = "2c549f7790024839";
 const CACHE_NAME = `fina-precache-${CACHE_VERSION}`;
 const CACHE_NAME_PREFIX = "fina-precache-";
 

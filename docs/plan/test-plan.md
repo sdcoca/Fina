@@ -234,11 +234,12 @@ contain); code, comments, test names and docs are English.
 | T-209 | Numeric balance cell likewise | R-7.7 |
 | T-210 | Date cell as `datetime` object parses identically to the string form | R-7.8 |
 | T-211 | `Divisa != EUR` raises | R-7.9 |
-| T-212 | Each of the 9 concept rules matches its canonical example (parametrized) | R-7.10 |
+| T-212 | Each of the 9 concept rules matches its canonical example, plus the `INMEDIATA` variant of rules 7/8 (parametrized) | R-7.10 |
 | T-213 | Rule order: a string matching both rule 3 and rule 4 takes rule 3 | R-7.10 |
 | T-214 | `TRANSFERENCIA DE X, CONCEPTO y.` → name `X`, concept suffix stripped | R-7.10 |
 | T-215 | `TRANSFERENCIA DE X` without suffix → name `X` | R-7.10 |
 | T-216 | Accent/case-insensitive concept matching (`Recibo`, `RECÍBO`) | R-7.10 |
+| T-217 | `TRANSFERENCIA INMEDIATA DE X, CONCEPTO y` → name `X`, same as non-instant transfer | R-7.10 |
 | T-217 | Unmatched concept with negative amount raises `UnknownMovementError` | R-7.11 |
 | T-218 | Unmatched concept with positive amount raises | R-7.11 |
 | T-219 | `date` = `Fecha operación`, `value_date` = `Fecha valor`, including the rows where they differ | R-7.14 |
@@ -467,7 +468,7 @@ packages land; a work package is not done until its rules appear here.
 | R-7.7 | T-208, T-209 |
 | R-7.8 | T-210 |
 | R-7.9 | T-211 |
-| R-7.10 | T-212..T-216 |
+| R-7.10 | T-212..T-217 |
 | R-7.11 | T-217, T-218 |
 | R-7.12 | (known risk — no test; revisited when a card adapter is specified) |
 | R-7.13 | T-223 |
