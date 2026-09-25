@@ -394,6 +394,49 @@ def test_redemption_cash_leg_zero_amount_is_still_warned() -> None:
     assert len(warnings) == 1
 
 
+def test_migration_position_move_zero_amount_is_not_warned() -> None:
+    """Real Trade Republic DELIVERY/MIGRATION pair: shares out and back in, no money."""
+    for quantity in (Decimal("-14.545454"), Decimal("14.545454")):
+        entry = make_entry(
+            movement_type=MovementType.TECHNICAL_ADJUSTMENT,
+            account="positions",
+            amount_eur=Decimal("0"),
+            cash_effect_eur=Decimal("0"),
+            quantity=quantity,
+        )
+        assert check_zero_amount_warnings(SOURCE_FILE, [entry]) == ()
+
+
+@pytest.mark.parametrize(
+    ("account", "quantity"),
+    [("cash", Decimal("5")), ("positions", None), ("positions", Decimal("0"))],
+)
+def test_technical_adjustment_zero_amount_that_moves_no_shares_is_still_warned(
+    account: str, quantity: Decimal | None
+) -> None:
+    """The exemption needs a real share movement on the positions account; a zero-booked
+    correction that moves nothing is exactly what R-2.16 exists to surface."""
+    entry = make_entry(
+        movement_type=MovementType.TECHNICAL_ADJUSTMENT,
+        account=account,
+        amount_eur=Decimal("0"),
+        cash_effect_eur=Decimal("0"),
+        quantity=quantity,
+    )
+    assert len(check_zero_amount_warnings(SOURCE_FILE, [entry])) == 1
+
+
+def test_redemption_positions_leg_with_no_quantity_is_still_warned() -> None:
+    entry = make_entry(
+        movement_type=MovementType.REDEMPTION,
+        account="positions",
+        amount_eur=Decimal("0"),
+        cash_effect_eur=Decimal("0"),
+        quantity=None,
+    )
+    assert len(check_zero_amount_warnings(SOURCE_FILE, [entry])) == 1
+
+
 def test_non_redemption_positions_leg_zero_amount_is_still_warned() -> None:
     """The exemption keys on REDEMPTION *and* account == "positions" together, not on
     account == "positions" alone.

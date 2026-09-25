@@ -594,3 +594,18 @@ above (accounting for the one `_73`→`_81` renumbering explained above) — no 
 undocumented survivor exists. Excluding all 42 documented equivalents (and the 1 timeout,
 which is not a real survivor), the real kill rate across the entire project is
 2580/2580 = 100%.
+
+## One warning per account (`classification.py` — R-3.6 grouped by counterparty IBAN; `models.py` — R-2.16 exemption widened to pure position moves)
+
+Found from the project owner's real Trade Republic export: 28 per-row R-3.6 warnings for 6
+accounts, and 12 more `amount_eur is exactly 0` warnings on a DELIVERY/MIGRATION pair (the
+broker moving the same shares out and back in on 2025-06-16) — the earlier REDEMPTION-only
+exemption had wrongly been assumed to cover them. Real CSV: 42 warnings → 8.
+
+`mutmut run`: 2 files mutated. `models.py`: only the two pre-existing documented equivalents
+(`x_compute_entry_id__mutmut_4`/`_12`, see WP-1/WP-2); every mutant of the widened
+`_is_by_design_zero_amount` is killed. `classification.py`: one new survivor, documented below.
+
+| Mutant | Change | Why it survives |
+|---|---|---|
+| `fina.classification.x__counterparty_key__mutmut_3` | `counterparty_iban or ""` → `counterparty_iban or "XXXX"` | **Equivalent.** The fallback is unreachable: `_counterparty_key` is only called on the R-3.6 branch, which a row with no IBAN never reaches (a no-IBAN row whose name matches an owned holder is classified internal first, R-3.4 rule 2). The `or ""` exists only to satisfy `mypy --strict` on the `str | None` field. |

@@ -325,9 +325,11 @@ of bytes); a repeat raises `DuplicateSourceError`. *(rationale: the same export 
 twice under two names would double every figure, and under D4 there is no dedup layer to
 catch it.)*
 **R-2.16** `amount_eur == 0` is permitted (some corrections are booked at zero) but MUST
-emit a warning naming the row -- except a REDEMPTION's positions-side leg (R-2.5a), whose
-`amount_eur == 0` is by construction, not an anomaly: the proceeds are booked on its
-companion cash-side leg instead.
+emit a warning naming the row -- except a pure position movement, whose `amount_eur == 0` is
+by construction, not an anomaly: a `REDEMPTION` or `TECHNICAL_ADJUSTMENT` row on the
+`positions` account with a non-zero `quantity` (a REDEMPTION's positions-side leg, R-2.5a,
+whose proceeds sit on its cash-side leg; a broker DELIVERY/MIGRATION moving the same shares
+out and back in). A zero on a cash-side row, or on a row that moves no shares, still warns.
 **R-2.17** `movement_type is TECHNICAL_ADJUSTMENT` ⇒ `cash_effect_eur == 0`.
 
 ---
@@ -363,7 +365,11 @@ An internal transfer with `cash_effect_eur == 0` raises `ValidationError`.
 not recognized)*, the run MUST emit a warning naming the row, the counterparty, the
 counterparty's IBAN, and the likely cause ("a statement for this account may not have been
 supplied"). *(the IBAN is included so the warning is directly actionable -- it names exactly
-which account statement is missing, without requiring a second lookup.)*
+which account statement is missing, without requiring a second lookup.)* Rows sharing the same
+counterparty IBAN (normalized) collapse into ONE warning per account, in first-seen order,
+listing every affected row (`file:row,row,...`) and the count -- one missing statement is one
+thing to act on, not N. *(project owner's decision, 2026-09-25: 28 per-row warnings for 6
+accounts were noise.)*
 *(rationale: classification depends on which files are present in the run. If the user has
 not yet supplied a statement for one of their own accounts, transfers to it look external
 today and become internal once that statement arrives — silently changing published savings

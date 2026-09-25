@@ -169,7 +169,7 @@ contain); code, comments, test names and docs are English.
 | T-067 | `DIVIDEND` with a non-`None` `quantity` raises | R-2.12, R-6.2a |
 | T-068 | Positive `fee_eur` raises | R-2.13 |
 | T-069 | `amount_eur == 0` allowed, emits warning | R-2.16 |
-| T-069a | REDEMPTION positions-leg `amount_eur == 0` is exempt (by design, no warning); its cash-leg and any non-REDEMPTION positions-leg `amount_eur == 0` still warn | R-2.16 |
+| T-069a | Pure position moves (REDEMPTION positions leg, DELIVERY/MIGRATION TECHNICAL_ADJUSTMENT: positions account, non-zero quantity) with `amount_eur == 0` are exempt; cash-side rows, rows moving no shares, and other types still warn | R-2.16 |
 | T-070 | `TECHNICAL_ADJUSTMENT` with non-zero cash effect raises | R-2.17 |
 | T-071 | Every exception class carries its required structured fields | R-1.23 |
 
@@ -267,6 +267,7 @@ contain); code, comments, test names and docs are English.
 | T-306 | Internal transfer with zero cash effect raises `ValidationError` | R-3.5 |
 | T-307 | Same IBAN, two different holders → `AccountConflictError` | R-3.3 |
 | T-308 | External row whose name matches an owned holder → R-3.6 warning emitted, still external, message includes the counterparty IBAN | R-3.6 |
+| T-308a | R-3.6 rows sharing a counterparty IBAN (normalized, any name spelling, any file) collapse into one warning per account, first-seen order, listing count and every `file:row` | R-3.6 |
 | T-309 | Manifest records the exact `owned_accounts` used | R-3.7 |
 | T-310 | Classification is idempotent (running the pass twice changes nothing) | R-1.20 |
 | T-311 | Non-transfer movement types are left with `is_external_flow=None` | R-2.3 |
@@ -434,7 +435,7 @@ packages land; a work package is not done until its rules appear here.
 | R-3.3 | T-307 |
 | R-3.4 | T-300..T-303 |
 | R-3.5 | T-300, T-305, T-306 |
-| R-3.6 | T-308 |
+| R-3.6 | T-308, T-308a |
 | R-3.7 | T-309, T-507 |
 | R-4.1 | T-103 (FX metadata stored, not applied) |
 | R-4.2 | (deferred — no test until an converting adapter exists) |

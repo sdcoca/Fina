@@ -64,7 +64,9 @@ def classify_entries(
     unchanged -- their `is_external_flow` was already fixed by the adapter (R-5.2), or does
     not apply to that movement type at all (R-2.3).
     """
-    warnings: list[Warning] = []
+    # R-3.6 hits grouped per counterparty account (one warning per account, not per row),
+    # in first-seen order so the output stays deterministic (R-1.20).
+    stability_hits: dict[str, list[LedgerEntry]] = {}
     classified: list[LedgerEntry] = []
     for entry in entries:
         if entry.movement_type not in TRANSFER_SHAPED_TYPES:
@@ -81,21 +83,39 @@ def classify_entries(
         # no IBAN and no name match) -- a name match here means a statement for the matching
         # account may simply not have been supplied yet in this run.
         if _matches_by_name(entry, owned_accounts):
-            direction = "from" if entry.movement_type is MovementType.EXTERNAL_DEPOSIT else "to"
-            warnings.append(
-                Warning(
-                    message=(
-                        f"{entry.source_file}:{entry.source_row}: transfer {direction} "
-                        f"{entry.counterparty_name!r} (IBAN {entry.counterparty_iban!r}) "
-                        "classified external, but the name matches an owned account holder; "
-                        "a statement for this account may not have been supplied"
-                    ),
-                    source_file=entry.source_file,
-                    source_row=entry.source_row,
-                )
-            )
+            stability_hits.setdefault(_counterparty_key(entry), []).append(entry)
         classified.append(replace(entry, is_external_flow=True))
-    return tuple(classified), tuple(warnings)
+    warnings = tuple(_stability_warning(hits) for hits in stability_hits.values())
+    return tuple(classified), warnings
+
+
+def _counterparty_key(entry: LedgerEntry) -> str:
+    # Always a real IBAN here: a row with no IBAN whose name matches was already classified
+    # internal (R-3.4 rule 2) before reaching the R-3.6 branch.
+    return normalize_iban(entry.counterparty_iban or "")
+
+
+def _stability_warning(hits: Sequence[LedgerEntry]) -> Warning:
+    """R-3.6: one warning per counterparty account, listing every row it covers so each one
+    stays traceable to its source (CLAUDE.md rule 10). A single-row account keeps the exact
+    per-row wording."""
+    first = hits[0]
+    directions = {e.movement_type is MovementType.EXTERNAL_DEPOSIT for e in hits}
+    direction = "to/from" if len(directions) > 1 else ("from" if directions.pop() else "to")
+    rows_by_file: dict[str, list[str]] = {}
+    for e in hits:
+        rows_by_file.setdefault(e.source_file, []).append(str(e.source_row))
+    refs = "; ".join(f"{f}:{','.join(rows)}" for f, rows in rows_by_file.items())
+    count = "transfer" if len(hits) == 1 else f"{len(hits)} transfers"
+    return Warning(
+        message=(
+            f"{refs}: {count} {direction} {first.counterparty_name!r} "
+            f"(IBAN {first.counterparty_iban!r}) classified external, but the name matches an "
+            "owned account holder; a statement for this account may not have been supplied"
+        ),
+        source_file=first.source_file if len(rows_by_file) == 1 else None,
+        source_row=first.source_row if len(hits) == 1 else None,
+    )
 
 
 def _matches_by_iban(entry: LedgerEntry, owned_accounts: Sequence[AccountDeclaration]) -> bool:

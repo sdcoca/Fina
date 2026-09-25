@@ -434,3 +434,99 @@ def test_dividend_entry_is_external_flow_none_and_untouched() -> None:
 def test_empty_entries_and_accounts_produce_empty_results() -> None:
     assert classify_entries([], []) == ((), ())
     assert collect_owned_accounts([]) == ()
+
+
+# ---------------------------------------------------------------------------
+# R-3.6: one warning per counterparty account, not per row
+# ---------------------------------------------------------------------------
+
+
+def _owner() -> AccountDeclaration:
+    # Only IBANs on test_gates_meta's anonymized allowlist: the owned account is ...0303, the
+    # unmatched counterparties are ...0202 / ...0203 (and 0202's spaced spelling).
+    return make_account(holder_name="FERNANDEZ ORTIZ LUCIA", iban_or_account="ES0000000000000000000303")
+
+
+def _stability_row(
+    source_row: int,
+    iban: str = "ES0000000000000000000202",
+    name: str = "FERNANDEZ ORTIZ LUCIA",
+    movement_type: MovementType = MovementType.EXTERNAL_DEPOSIT,
+    source_file: str = "broker.csv",
+) -> LedgerEntry:
+    sign = Decimal("1") if movement_type is MovementType.EXTERNAL_DEPOSIT else Decimal("-1")
+    return make_entry(
+        entry_id=f"e{source_row}-{source_file}",
+        counterparty_iban=iban,
+        counterparty_name=name,
+        movement_type=movement_type,
+        amount_eur=sign * Decimal("10.00"),
+        cash_effect_eur=sign * Decimal("10.00"),
+        source_row=source_row,
+        source_file=source_file,
+    )
+
+
+def test_r36_rows_of_the_same_account_collapse_into_one_warning() -> None:
+    account = _owner()
+    rows = [_stability_row(2), _stability_row(3), _stability_row(26)]
+    classified, warnings = classify_entries(rows, [account])
+    assert all(e.is_external_flow for e in classified)
+    assert len(warnings) == 1
+    assert warnings[0].message == (
+        "broker.csv:2,3,26: 3 transfers from 'FERNANDEZ ORTIZ LUCIA' "
+        "(IBAN 'ES0000000000000000000202') classified external, but the name matches an "
+        "owned account holder; a statement for this account may not have been supplied"
+    )
+    assert warnings[0].source_file == "broker.csv"
+    assert warnings[0].source_row is None
+
+
+def test_r36_mixed_directions_say_to_from() -> None:
+    account = _owner()
+    rows = [_stability_row(2), _stability_row(3, movement_type=MovementType.EXTERNAL_WITHDRAWAL)]
+    _classified, warnings = classify_entries(rows, [account])
+    assert "2 transfers to/from" in warnings[0].message
+
+
+def test_r36_all_withdrawals_say_to() -> None:
+    account = _owner()
+    rows = [
+        _stability_row(2, movement_type=MovementType.EXTERNAL_WITHDRAWAL),
+        _stability_row(3, movement_type=MovementType.EXTERNAL_WITHDRAWAL),
+    ]
+    _classified, warnings = classify_entries(rows, [account])
+    assert "2 transfers to " in warnings[0].message
+
+
+def test_r36_one_warning_per_account_in_first_seen_order() -> None:
+    account = _owner()
+    rows = [
+        _stability_row(2, iban="ES0000000000000000000203"),
+        _stability_row(3),
+        _stability_row(4, iban="ES0000000000000000000203"),
+    ]
+    _classified, warnings = classify_entries(rows, [account])
+    assert [w.message.split(":")[1] for w in warnings] == ["2,4", "3"]
+    assert "'ES0000000000000000000203'" in warnings[0].message
+
+
+def test_r36_groups_by_normalized_iban_across_name_spellings() -> None:
+    """Real source data spells the same holder in two orders on the same IBAN."""
+    account = _owner()
+    rows = [
+        _stability_row(2, iban="ES00 0000 0000 0000 0000 0202"),
+        _stability_row(3, name="LUCIA FERNANDEZ ORTIZ"),
+    ]
+    _classified, warnings = classify_entries(rows, [account])
+    assert len(warnings) == 1
+    assert "2 transfers" in warnings[0].message
+
+
+def test_r36_account_spanning_two_files_lists_both_and_has_no_single_source_file() -> None:
+    account = _owner()
+    rows = [_stability_row(2), _stability_row(9, source_file="bank.xlsx")]
+    _classified, warnings = classify_entries(rows, [account])
+    assert warnings[0].message.startswith("broker.csv:2; bank.xlsx:9: 2 transfers")
+    assert warnings[0].source_file is None
+    assert warnings[0].source_row is None

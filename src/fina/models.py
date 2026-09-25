@@ -256,13 +256,23 @@ def check_duplicate_transaction_ids(id_rows: Sequence[tuple[str, int]]) -> None:
 
 
 def _is_by_design_zero_amount(entry: LedgerEntry) -> bool:
-    """R-2.5a: a REDEMPTION's positions-side leg has ``amount_eur == 0`` by construction --
-    the proceeds are booked on its companion cash-side leg instead (see broker_csv.py's own
-    R-6.5 comment). Scoped to ``account == "positions"`` specifically, not to the whole
-    REDEMPTION type: the cash-side leg is the one that carries the real proceeds, so a zero
-    there would still be a genuine anomaly worth surfacing under R-2.16.
+    """A pure position movement: shares change on the positions account with no money at all,
+    so ``amount_eur == 0`` is by construction, not a data anomaly. Two real cases, both from a
+    real Trade Republic export: a REDEMPTION's positions-side leg (R-2.5a -- the proceeds are
+    on its companion cash-side leg) and a DELIVERY/MIGRATION TECHNICAL_ADJUSTMENT (the broker
+    moving the same shares out and back in). Scoped to ``account == "positions"`` with a
+    non-zero ``quantity``: a zero on a cash-side row, or on a row that moves no shares, is
+    still a genuine anomaly worth surfacing under R-2.16.
     """
-    return entry.movement_type is MovementType.REDEMPTION and entry.account == "positions"
+    return (
+        entry.movement_type in _POSITION_ONLY_TYPES
+        and entry.account == "positions"
+        and entry.quantity is not None
+        and entry.quantity != 0
+    )
+
+
+_POSITION_ONLY_TYPES = frozenset({MovementType.REDEMPTION, MovementType.TECHNICAL_ADJUSTMENT})
 
 
 def check_zero_amount_warnings(
@@ -270,8 +280,8 @@ def check_zero_amount_warnings(
     entries: Sequence[LedgerEntry],
 ) -> tuple[Warning, ...]:
     """R-2.16: ``amount_eur == 0`` is permitted but must be surfaced, never silent -- except
-    the one case where it is expected by construction rather than a data anomaly (R-2.5a's
-    REDEMPTION positions-side leg).
+    pure position movements, where it is expected by construction rather than a data anomaly
+    (see ``_is_by_design_zero_amount``).
     """
     return tuple(
         Warning(

@@ -398,11 +398,19 @@ def test_cp1252_fallback_warning_names_the_actual_file(tmp_path: Path) -> None:
     assert fallback_warnings[0].source_file == "cp1252file.csv"
 
 
-def test_zero_amount_migration_warning_names_the_actual_file() -> None:
+def test_fixture_migration_pair_emits_no_zero_amount_warning() -> None:
+    """The fixture's DELIVERY/MIGRATION pair moves shares with no money: zero by design."""
     result = broker_csv.parse(BROKER_CSV)
+    assert [w for w in result.warnings if "amount_eur is exactly 0" in w.message] == []
+
+
+def test_zero_amount_warning_names_the_actual_file(tmp_path: Path) -> None:
+    row = _base_row(category="CASH", type="INTEREST_PAYMENT", amount="0")
+    path = broker_csv_with(tmp_path, mutate_rows=[row], filename="zerofile.csv")
+    result = broker_csv.parse(path)
     zero_warnings = [w for w in result.warnings if "amount_eur is exactly 0" in w.message]
-    assert len(zero_warnings) == 2
-    assert all(w.source_file == "broker_ejemplo.csv" for w in zero_warnings)
+    assert len(zero_warnings) == 1
+    assert zero_warnings[0].source_file == "zerofile.csv"
 
 
 def test_entry_id_hash_path_uses_institution_account_file_and_row(tmp_path: Path) -> None:
