@@ -32,6 +32,13 @@ def test_t504_warnings_printed_before_any_figure(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     input_dir = _copy_both_fixtures(tmp_path)
+
+    # The clean fixtures emit no warning at all; an unrecognized bank concept guarantees one
+    # (R-7.11's sign-based fallback) without touching any amount or balance.
+    def unknown_concept(ws: Worksheet) -> None:
+        ws["C9"] = "UN CONCEPTO DESCONOCIDO"
+
+    bank_xlsx_with(input_dir, unknown_concept, filename="banco_ejemplo.xlsx")
     out_dir = tmp_path / "out"
 
     exit_code = cli.main(["build", "--input", str(input_dir), "--out", str(out_dir)])

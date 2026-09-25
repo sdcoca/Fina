@@ -609,3 +609,20 @@ exemption had wrongly been assumed to cover them. Real CSV: 42 warnings → 8.
 | Mutant | Change | Why it survives |
 |---|---|---|
 | `fina.classification.x__counterparty_key__mutmut_3` | `counterparty_iban or ""` → `counterparty_iban or "XXXX"` | **Equivalent.** The fallback is unreachable: `_counterparty_key` is only called on the R-3.6 branch, which a row with no IBAN never reaches (a no-IBAN row whose name matches an owned holder is classified internal first, R-3.4 rule 2). The `or ""` exists only to satisfy `mypy --strict` on the `str | None` field. |
+
+## R-8.4 revised (`reconciliation.py` — no-balance accounts skipped silently, no "unverified" warning)
+
+Owner's decision (2026-09-25): the broker's balance is summed from its full movement history,
+so the "computed balance is unverified" warning gave nothing to act on. `reconcile` now returns
+`None`; the former R-8.4 `Warning(source_row=None)` equivalent (`x_reconcile__mutmut_18`,
+documented above) no longer exists.
+
+**Real gap found and fixed in the same round**: `x_reconcile__mutmut_11` (`continue` → `break`
+on the no-balance branch) survived. It is not equivalent: a no-balance group listed first (the
+broker's accounts) would stop the pass before a later bank account is checked, silently
+skipping R-8.2/R-8.5 for it. The deleted R-8.4 warning-count tests used to kill it as a side
+effect. Now killed directly by
+`test_a_no_balance_account_does_not_stop_later_accounts_being_checked` (broker entries first,
+then a bank file with a one-cent-corrupted balance — must raise). Confirmed by applying the
+mutation by hand (test fails) and by a targeted `mutmut run` of that mutant (killed). The other
+survivors in `section1.py`/`pipeline.py` are the pre-existing documented equivalents.

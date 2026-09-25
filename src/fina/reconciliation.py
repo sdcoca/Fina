@@ -13,7 +13,7 @@ from datetime import date as _date
 from decimal import Decimal
 
 from fina.errors import ReconciliationError
-from fina.models import LedgerEntry, Warning
+from fina.models import LedgerEntry
 
 #: An entry paired with its own `declared_balance`, already narrowed to `Decimal` (never
 #: `None`) by construction -- see `_with_declared_balance`. Keeping the narrowing inside one
@@ -101,36 +101,24 @@ def _check_header_balance(
 def reconcile(
     entries: Sequence[LedgerEntry],
     header_balances: Mapping[tuple[str, str], Decimal] | None = None,
-) -> tuple[Warning, ...]:
+) -> None:
     """Run R-8.1..R-8.5 over every `(institution, account)` group in `entries`.
 
-    Raises `ReconciliationError` on the first violation found (R-8.2 or R-8.5); returns the
-    R-8.4 "unverified" warnings for every group that carries no declared balance at all (e.g.
-    the broker's cash account, which has no running-balance column in its source format).
-    `header_balances`, keyed by `(institution, source_file)`, supplies the R-8.5 same-file
-    cross-check for institutions whose files carry one; a group whose final file has no entry
-    in this mapping simply skips that one check (R-8.2/R-8.3 still apply regardless).
+    Raises `ReconciliationError` on the first violation found (R-8.2 or R-8.5). A group that
+    carries no declared balance at all (e.g. the broker's accounts, whose source format has no
+    running-balance column) is skipped silently (R-8.4): its balance is summed from real
+    movements, not estimated, and there is nothing the user could do about the missing
+    cross-check. `header_balances`, keyed by `(institution, source_file)`, supplies the R-8.5
+    same-file cross-check for institutions whose files carry one; a group whose final file has
+    no entry in this mapping simply skips that one check (R-8.2/R-8.3 still apply regardless).
     """
     resolved_header_balances = header_balances or {}
-    warnings: list[Warning] = []
-    for (institution, account), group in _group_by_account(entries).items():
-        ordered = sorted(group, key=sort_key)
-        pairs = _with_declared_balance(ordered)
+    for (institution, _account), group in _group_by_account(entries).items():
+        pairs = _with_declared_balance(sorted(group, key=sort_key))
         if not pairs:
-            warnings.append(
-                Warning(
-                    message=(
-                        f"{institution}/{account}: computed balance is unverified against "
-                        "any source-declared balance"
-                    ),
-                    source_file=ordered[0].source_file,
-                    source_row=None,
-                )
-            )
             continue
         _check_balance_chain(pairs)
         _check_header_balance(institution, pairs, resolved_header_balances)
-    return tuple(warnings)
 
 
 def anchor_at(

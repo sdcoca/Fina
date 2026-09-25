@@ -138,8 +138,7 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
     classified_entries, classification_warnings = classify_entries(all_entries, owned_accounts)
     all_warnings.extend(classification_warnings)
 
-    reconciliation_warnings = reconcile(classified_entries, header_balances)
-    all_warnings.extend(reconciliation_warnings)
+    reconcile(classified_entries, header_balances)
 
     series = compute_section1(classified_entries)
 

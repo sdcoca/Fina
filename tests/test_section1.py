@@ -158,9 +158,8 @@ def test_t401c_account_with_no_declared_balance_still_falls_back_to_raw_summatio
     """R-8.4's case (the broker export has no running-balance column at all): `cash_balance`
     must still fall back to raw summation from zero, unchanged by the R-9.1 anchor fix -- the
     anchor only ever changes behaviour for an account that actually has a declared balance to
-    anchor to. `reconciliation.anchor_at` returning `None` here is exactly what T-354 already
-    proves also carries the R-8.4 "unverified" warning; this test pins the `cash_balance`-level
-    behaviour that warning is about.
+    anchor to. `reconciliation.anchor_at` returning `None` here is R-8.4's case (no declared balance
+    to cross-check against); this test pins the `cash_balance`-level behaviour for it.
     """
     result = broker_csv.parse(BROKER_CSV)
     entries = result.entries

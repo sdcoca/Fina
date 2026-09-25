@@ -661,13 +661,16 @@ Tolerance is exactly zero (CLAUDE.md rule 9). No epsilon, no rounding before com
 itself checked. The account's balance before that row is neither claimed nor verified by that
 file.
 
-**R-8.4** Entries with `declared_balance is None` (i.e. the whole broker file) are skipped by
-the reconciliation check; the run MUST emit exactly one warning per such
-`(institution, account)` stating that its computed balance is **unverified against any
-source-declared balance** (CLAUDE.md rule 11).
-*(rationale: the broker export format carries no running-balance column at all. The honest
-position is "computed, unverified", not "reconciled". Resolving it requires a periodic
-statement the user does not currently supply — open question Q-D.)*
+**R-8.4 (revised)** Entries with `declared_balance is None` (i.e. the whole broker file) are
+skipped by the reconciliation check, silently: no warning.
+*(original rationale: the broker export carries no running-balance column, so the honest
+position is "computed, not cross-checked" — open question Q-D. Revised by the project owner,
+2026-09-25: the balance is summed from the full, real movement history, so it is a measured
+figure, not an estimate (rule 11 is not engaged), and a per-run "unverified" warning gave the
+owner nothing to act on — noise under the same criterion that removed the by-design
+zero-amount warnings (R-2.16). The residual risk — an export missing its oldest rows would
+understate the balance undetected — is accepted; Q-D stays open for a future
+statement-based cross-check.)*
 
 **R-8.5** After reconciliation, the final `declared_balance` of a bank account MUST equal the
 balance stated in that file's header block (R-7.2); a mismatch raises `ReconciliationError`
@@ -693,7 +696,7 @@ if anchor exists:
                            sort_key(e) > sort_key(anchor), e.date ≤ t }
 else (no declared_balance exists for this account at all — R-8.4's case):
     cash_balance(t) = Σ { e.cash_effect_eur : same (institution, account), e.date ≤ t }
-    — unverified, per R-8.4's warning, and additionally may omit an unrecorded opening
+    — not cross-checked (R-8.4), and additionally may omit an unrecorded opening
     balance that predates the ledger's earliest entry for this account (see rationale).
 ```
 `reconciliation.py` (§8) MUST expose the anchor lookup as a function `section1.py` calls,

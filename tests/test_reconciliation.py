@@ -19,7 +19,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from builders import BANK_XLSX, BROKER_CSV, bank_xlsx_with
 from fina.adapters import bank_xlsx, broker_csv
 from fina.errors import ReconciliationError
-from fina.models import LedgerEntry, MovementType, Warning
+from fina.models import LedgerEntry, MovementType
 from fina.reconciliation import anchor_at, reconcile
 
 SOURCE_FILE = "banco_ejemplo.xlsx"
@@ -71,11 +71,10 @@ def test_t350_bank_fixture_reconciles_with_zero_discrepancy() -> None:
     """
     result = bank_xlsx.parse(BANK_XLSX)
     header = bank_xlsx.read_header_block(BANK_XLSX)
-    warnings = reconcile(
+    reconcile(
         result.entries,
         header_balances={("bank_es", "banco_ejemplo.xlsx"): header.balance},
     )
-    assert warnings == ()
 
 
 def test_t351_one_cent_corrupted_raises_with_exact_fields(tmp_path: Path) -> None:
@@ -142,8 +141,7 @@ def test_t353_first_declared_balance_row_is_not_checked() -> None:
         source_row=10,
         file_sequence=-10,
     )
-    warnings = reconcile([baseline, second])
-    assert warnings == ()
+    reconcile([baseline, second])
 
 
 # ---------------------------------------------------------------------------
@@ -151,62 +149,38 @@ def test_t353_first_declared_balance_row_is_not_checked() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_t354_broker_account_has_no_error_and_an_unverified_warning() -> None:
+def test_t354_broker_accounts_with_no_declared_balance_are_skipped_silently() -> None:
     """The broker export has no running-balance column at all -- neither the `cash` nor the
-    `positions` sub-account carries a declared_balance -- so both are unverified, and
-    `reconcile` must raise nothing.
+    `positions` sub-account carries a declared_balance -- so there is nothing to cross-check:
+    `reconcile` raises nothing and emits nothing (R-8.4, revised: the owner could not act on an
+    "unverified" warning, and the balance is summed from real movements, not estimated).
     """
     result = broker_csv.parse(BROKER_CSV)
-    warnings = reconcile(result.entries)
-    assert len(warnings) == 2
-    by_account = {w.message.split(":", 1)[0]: w for w in warnings}
-    assert set(by_account) == {"trade_republic/cash", "trade_republic/positions"}
-    for account_key, warning in by_account.items():
-        assert isinstance(warning, Warning)
-        assert warning.message == (
-            f"{account_key}: computed balance is unverified against any source-declared balance"
-        )
-        assert warning.source_file == "broker_ejemplo.csv"
-        assert warning.source_row is None
+    assert all(e.declared_balance is None for e in result.entries)
+    assert reconcile(result.entries) is None
 
 
-def test_t355_exactly_one_warning_per_institution_account_not_per_row() -> None:
-    result = broker_csv.parse(BROKER_CSV)
-    cash_rows = [e for e in result.entries if e.account == "cash"]
-    assert len(cash_rows) > 1  # many rows share (institution, account) = (trade_republic, cash)
-    warnings = reconcile(result.entries)
-    # One warning per distinct (institution, account) group, not one per row: 18 broker rows
-    # collapse to exactly 2 warnings (cash, positions), never 18.
-    accounts_warned = {(e.institution, e.account) for e in result.entries}
-    assert len(warnings) == len(accounts_warned) == 2
+def test_a_no_balance_account_does_not_stop_later_accounts_being_checked(tmp_path: Path) -> None:
+    """Skipping a no-balance group must move on to the next group, not stop the whole pass:
+    a corrupted bank account listed after the broker's accounts must still raise."""
+
+    def mutate(ws: Worksheet) -> None:
+        ws["E10"] = "6.196,16€"  # declared balance off by exactly one cent
+
+    bank = bank_xlsx.parse(bank_xlsx_with(tmp_path, mutate, filename="corrupted.xlsx"))
+    broker = broker_csv.parse(BROKER_CSV)
+    with pytest.raises(ReconciliationError):
+        reconcile([*broker.entries, *bank.entries])
 
 
-def test_two_distinct_no_balance_accounts_each_get_their_own_warning() -> None:
-    cash = make_entry(
-        entry_id="c1",
-        institution="trade_republic",
-        account="cash",
-        declared_balance=None,
-        source_row=2,
-        file_sequence=2,
-    )
-    positions = make_entry(
-        entry_id="p1",
-        institution="trade_republic",
-        account="positions",
-        movement_type=MovementType.BUY,
-        amount_eur=Decimal("-100.00"),
-        quantity=Decimal("1"),
-        cash_effect_eur=Decimal("-100.00"),
-        declared_balance=None,
-        is_external_flow=None,
-        source_row=3,
-        file_sequence=3,
-    )
-    warnings = reconcile([cash, positions])
-    assert len(warnings) == 2
-    accounts_warned = {w.message for w in warnings}
-    assert len(accounts_warned) == 2
+def test_t355_no_balance_accounts_add_no_warning_to_a_full_run(tmp_path: Path) -> None:
+    import shutil
+
+    from fina.pipeline import run_pipeline
+
+    shutil.copy(BROKER_CSV, tmp_path / BROKER_CSV.name)
+    warnings = run_pipeline(tmp_path).warnings
+    assert not [w for w in warnings if "declared balance" in w.message or "unverified" in w.message]
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +208,8 @@ def test_header_balance_check_is_skipped_when_not_supplied() -> None:
     R-8.2/R-8.3 still run.
     """
     result = bank_xlsx.parse(BANK_XLSX)
-    warnings = reconcile(result.entries, header_balances={})
-    assert warnings == ()
-    warnings_none = reconcile(result.entries, header_balances=None)
-    assert warnings_none == ()
+    reconcile(result.entries, header_balances={})
+    reconcile(result.entries, header_balances=None)
 
 
 # ---------------------------------------------------------------------------

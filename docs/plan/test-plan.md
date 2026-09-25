@@ -280,8 +280,8 @@ contain); code, comments, test names and docs are English.
 | T-351 | One cent corrupted → `ReconciliationError` with exact row, expected, declared, delta | R-8.2, R-1.23 |
 | T-352 | Same-day rows swapped → reconciliation fails (ordering is load-bearing) | R-1.22, R-8.2 |
 | T-353 | First declared-balance row establishes baseline, is not itself checked | R-8.3 |
-| T-354 | Broker account (no declared balances) → no error, exactly one "unverified" warning | R-8.4 |
-| T-355 | Exactly one such warning per `(institution, account)`, not per row | R-8.4 |
+| T-354 | Broker accounts (no declared balances) → no error, skipped silently (revised R-8.4) | R-8.4 |
+| T-355 | A full pipeline run over the broker file adds no balance-related warning | R-8.4 |
 | T-356 | Final declared balance vs header balance mismatch raises | R-8.5 |
 | T-357 | Comparison uses exact `Decimal` equality (a 0.001 difference still fails) | R-8.2, R-1.5 |
 | T-358 | Bank fixture rows 9/10 (same `Fecha operación`, tied): sorting by `file_sequence` (R-7.5a) reconciles exactly; sorting by raw ascending `source_row` instead does not (regression test for the real contradiction that produced R-1.22's current wording) | R-1.22, R-7.5a, R-8.2, §12.1 |

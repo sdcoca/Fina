@@ -48,8 +48,8 @@ def cash_balance(
     """R-9.1: the account's balance at `as_of`, anchored to `reconciliation.py`'s own R-8.3
     baseline (via `anchor_at`) when one exists for this `(institution, account)` pair --
     `anchor.declared_balance` plus every later entry's `cash_effect_eur` through `as_of`.
-    Falls back to raw summation of `cash_effect_eur` from an assumed zero balance -- still
-    unverified per R-8.4 -- only when the pair carries no declared balance at all.
+    Falls back to raw summation of `cash_effect_eur` from an assumed zero balance (R-8.4: no
+    declared balance to cross-check against) only when the pair carries none at all.
 
     Before this anchoring, this function summed `cash_effect_eur` from zero unconditionally,
     which silently dropped any real balance that predated an account's earliest ingested entry
