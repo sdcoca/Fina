@@ -17,7 +17,7 @@ from typing import cast
 import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
-from fina.errors import ParseError, UnknownMovementError, UnsupportedCurrencyError
+from fina.errors import ParseError, UnsupportedCurrencyError
 from fina.models import (
     AccountDeclaration,
     AdapterResult,
@@ -225,6 +225,19 @@ _RULE_TRANSFERENCIA_A = re.compile(
     r"^TRANSFERENCIA (?:INMEDIATA )?A (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$"
 )
 _RULE_NOMINA = re.compile(r"^(?:NOMINA|ABONO NOMINA)")
+# Bizum's own "De"/"A favor de" name is the receiving bank's own record of the other party's
+# registered identity, not free text the sender can edit -- same trust level as a SEPA
+# transfer's ordinante name above. Everything after "CONCEPTO" (present or not, with or
+# without a comma -- both appear on real exports) is the sender's free-text note and is never
+# captured as the name. Bizum can never be a transfer between two of the user's own accounts
+# (one phone number links to at most one account, network-wide), so unlike TRANSFERENCIA
+# there is no internal-transfer case to detect here -- the name is kept only for R-1.10
+# traceability (so a ledger row reads "Bizum de X", not just "gasto de 12 EUR").
+_RULE_BIZUM_DEVOLUCION_DE = re.compile(
+    r"^DEVOLUCION BIZUM RECIBIDO DE (?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$"
+)
+_RULE_BIZUM_A_FAVOR_DE = re.compile(r"^BIZUM A FAVOR DE (?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$")
+_RULE_BIZUM_DE = re.compile(r"^BIZUM DE (?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$")
 
 
 @dataclass(frozen=True)
@@ -233,34 +246,71 @@ class _ConceptMatch:
     counterparty_name: str | None
 
 
-def _match_concept(concepto: str, *, source_file: str, source_row: int) -> _ConceptMatch:
+def _match_concept(
+    concepto: str, amount_eur: Decimal, *, source_file: str, source_row: int
+) -> tuple[_ConceptMatch, Warning | None]:
     trimmed = concepto.strip()
     normalized = fold_vowel_accents(trimmed.upper())
 
     if normalized.startswith("PAGO MOVIL EN "):
-        return _ConceptMatch(MovementType.EXPENSE, None)
+        return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("TRANSACCION CONTACTLESS EN "):
-        return _ConceptMatch(MovementType.EXPENSE, None)
+        return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("COMPRA ") and "TARJETA" in normalized:
-        return _ConceptMatch(MovementType.EXPENSE, None)
+        return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("RECIBO "):
-        return _ConceptMatch(MovementType.EXPENSE, None)
+        return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("LIQUIDACION PERIODICA PRESTAMO"):
-        return _ConceptMatch(MovementType.EXPENSE, None)
+        return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("LIQUIDACION DE LAS TARJETAS DE CREDITO"):
-        return _ConceptMatch(MovementType.EXPENSE, None)
+        return _ConceptMatch(MovementType.EXPENSE, None), None
     match_de = _RULE_TRANSFERENCIA_DE.match(normalized)
     if match_de is not None:
         start, end = match_de.span("name")
-        return _ConceptMatch(MovementType.EXTERNAL_DEPOSIT, trimmed[start:end])
+        return _ConceptMatch(MovementType.EXTERNAL_DEPOSIT, trimmed[start:end]), None
     match_a = _RULE_TRANSFERENCIA_A.match(normalized)
     if match_a is not None:
         start, end = match_a.span("name")
-        return _ConceptMatch(MovementType.EXTERNAL_WITHDRAWAL, trimmed[start:end])
+        return _ConceptMatch(MovementType.EXTERNAL_WITHDRAWAL, trimmed[start:end]), None
     if _RULE_NOMINA.match(normalized):
-        return _ConceptMatch(MovementType.PAYROLL_INCOME, None)
+        return _ConceptMatch(MovementType.PAYROLL_INCOME, None), None
+    # Checked before the plain "BIZUM DE" rule: "DEVOLUCION BIZUM RECIBIDO DE" would otherwise
+    # never be reached, since it doesn't start with "BIZUM " at all -- but ordering it first
+    # is what actually matters, not that it "wins" over a rule it could never have matched.
+    match_bizum_devolucion = _RULE_BIZUM_DEVOLUCION_DE.match(normalized)
+    if match_bizum_devolucion is not None:
+        start, end = match_bizum_devolucion.span("name")
+        return _ConceptMatch(MovementType.EXTERNAL_DEPOSIT, trimmed[start:end]), None
+    match_bizum_a = _RULE_BIZUM_A_FAVOR_DE.match(normalized)
+    if match_bizum_a is not None:
+        start, end = match_bizum_a.span("name")
+        return _ConceptMatch(MovementType.EXTERNAL_WITHDRAWAL, trimmed[start:end]), None
+    match_bizum_de = _RULE_BIZUM_DE.match(normalized)
+    if match_bizum_de is not None:
+        start, end = match_bizum_de.span("name")
+        return _ConceptMatch(MovementType.EXTERNAL_DEPOSIT, trimmed[start:end]), None
 
-    raise UnknownMovementError(source_file=source_file, source_row=source_row, observed=concepto)
+    # R-7.11 (revised): a concept matching none of the named rules above is no longer a hard
+    # failure. The project owner's own real export showed this bank inventing new wording
+    # faster than any fixed rule list can keep up with (bond-redemption rows, "INMEDIATA"
+    # transfers, "TARJ." vs "TARJETA", dozens of ATM/refund/tax-debit variants) -- a single
+    # unrecognized row used to abort the *entire* file. The amount's sign is always a reliable
+    # signal of real economic direction regardless of wording, so it is now the last resort:
+    # negative -> EXPENSE (money left with no identified counterparty), non-negative ->
+    # EXTERNAL_DEPOSIT (money arrived). This can never be an internal transfer (there is no
+    # name/IBAN to match against owned accounts), and it always emits a warning naming the
+    # exact concept and row, so it is never silent (CLAUDE.md rule 15) even though it no
+    # longer blocks the run.
+    movement_type = MovementType.EXPENSE if amount_eur < 0 else MovementType.EXTERNAL_DEPOSIT
+    warning = Warning(
+        message=(
+            f"{source_file}:{source_row}: unrecognized concept {concepto!r} classified as "
+            f"{movement_type.value} by amount sign only -- no matching rule"
+        ),
+        source_file=source_file,
+        source_row=source_row,
+    )
+    return _ConceptMatch(movement_type, None), warning
 
 
 @dataclass(frozen=True)
@@ -373,7 +423,11 @@ def parse(file_path: Path) -> AdapterResult:
                 raw_value="",
                 expected="a non-empty Concepto string",
             )
-        match = _match_concept(str(concepto), source_file=source_file, source_row=row_idx)
+        match, concept_warning = _match_concept(
+            str(concepto), amount_eur, source_file=source_file, source_row=row_idx
+        )
+        if concept_warning is not None:
+            warnings.append(concept_warning)
 
         # fecha_operacion/fecha_valor/importe/saldo are already guaranteed non-None here:
         # _cell_to_date/_cell_to_amount above raise ParseError before this point if any of

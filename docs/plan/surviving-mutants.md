@@ -539,6 +539,38 @@ refunds/cancellations, ATM withdrawals, tax direct debits, and a few unclear sin
 of those are fixed by this change; they are a separate, much larger work package pending the
 owner's classification decisions (see conversation), not silently absorbed here.
 
+## Bizum rules and sign-based last resort (`bank_xlsx.py` — R-7.10 rules 10-12 for Bizum;
+R-7.11 revised to classify any remaining unmatched concept by amount sign instead of raising;
+R-5.3 gains a documented, `bank_xlsx.py`-scoped exception)
+
+Resolves the scope-note gap above, after the owner's own explicit decision (see conversation,
+2026-09-25) to accept the sign-based default in exchange for the file never again aborting
+wholesale on a bank wording variant. Bizum keeps 3 named rules (not folded into the generic
+default) purely for R-1.10 traceability — capturing `counterparty_name` — since by Bizum's own
+service design (one phone number links to at most one account, network-wide) a Bizum row can
+never be a transfer between two of the owner's own accounts, so there was never an
+internal-transfer case for the generic sign-based rule to miss by not extracting a name.
+
+`mutmut run`: only `bank_xlsx.py` mutated (same file as the previous two rounds). Zero
+survivors anywhere in `_match_concept` itself — every mutant the three new Bizum regexes and
+the sign-based fallback branch introduced is killed, by `test_t212_...` (Bizum canonical
+cases), `test_bizum_de_captures_name_with_concepto_suffix_no_comma`,
+`test_bizum_a_favor_de_captures_name_with_colon_suffix`,
+`test_devolucion_bizum_recibido_de_captures_the_counterparty_name`,
+`test_t217_t218_unmatched_concept_falls_back_to_sign_based_classification`, and
+`test_compra_without_tarjeta_does_not_match_rule_3` (now proves rule 3 didn't fire, since the
+sign-based fallback is sign-dependent and rule 3 isn't). The same 9 pre-existing survivors
+already documented under WP-5 reappear, unrelated to this change, same IDs.
+
+**Real-data validation**: re-ran the owner's actual bank export (not a fixture) through
+`run_pipeline` end to end. Every one of the 262 previously-unrecognized `Concepto` patterns
+now parses without error. The run does now stop at a *different*, genuine problem —
+`ReconciliationError` on a real 5.00 EUR gap between the header-declared balance and the most
+recent movement row's own stated balance (R-8.5) — which is unrelated to this change (that
+check never depends on `movement_type`/`counterparty_name`, only on each row's own `Saldo`
+cell and the header block, both read as-is regardless of classification) and is a genuine data
+question for the owner, not a code defect.
+
 Full run (with the corrected test selection): **2623 mutants generated, 2580 killed, 42
 survived, 1 timeout** (up from 2610/2568/42/0 — 13 more mutants generated: `models.py`
 46→46 unchanged since `REDEMPTION` added no executable logic, `broker_csv.py` 609 total now;

@@ -239,10 +239,14 @@ contain); code, comments, test names and docs are English.
 | T-214 | `TRANSFERENCIA DE X, CONCEPTO y.` → name `X`, concept suffix stripped | R-7.10 |
 | T-215 | `TRANSFERENCIA DE X` without suffix → name `X` | R-7.10 |
 | T-216 | Accent/case-insensitive concept matching (`Recibo`, `RECÍBO`) | R-7.10 |
-| T-217 | `TRANSFERENCIA INMEDIATA DE X, CONCEPTO y` → name `X`, same as non-instant transfer | R-7.10 |
-| T-217 | Unmatched concept with negative amount raises `UnknownMovementError` | R-7.11 |
-| T-218 | Unmatched concept with positive amount raises | R-7.11 |
+| T-217 | Unmatched concept, negative amount → `EXPENSE` by sign, warning emitted | R-7.11 |
+| T-218 | Unmatched concept, non-negative amount → `EXTERNAL_DEPOSIT` by sign, warning emitted | R-7.11 |
 | T-219 | `date` = `Fecha operación`, `value_date` = `Fecha valor`, including the rows where they differ | R-7.14 |
+| T-220 | `TRANSFERENCIA INMEDIATA DE X, CONCEPTO y` → name `X`, same as non-instant transfer | R-7.10 |
+| T-221 | `BIZUM DE X CONCEPTO y` (no comma) → `EXTERNAL_DEPOSIT`, name `X` | R-7.10 |
+| T-222 | `BIZUM A FAVOR DE X CONCEPTO: y` (colon) → `EXTERNAL_WITHDRAWAL`, name `X` | R-7.10 |
+| T-223 | `DEVOLUCION BIZUM RECIBIDO DE X CONCEPTO y` → `EXTERNAL_DEPOSIT`, name `X` | R-7.10 |
+| T-224 | Rule 3 (`COMPRA`+`TARJETA`) not matched → falls to sign-based rule, not silently absorbed as `EXPENSE` regardless of sign | R-7.10, R-7.11 |
 | T-220 | Newest-first source order is re-sorted; entry order matches R-1.22 | R-7.15, R-1.22 |
 | T-221 | Declaration carries normalized IBAN, holder, export date | R-7.16 |
 | T-222 | Second worksheet present → warning, ignored | R-7.1 |
@@ -436,7 +440,7 @@ packages land; a work package is not done until its rules appear here.
 | R-4.2 | (deferred — no test until an converting adapter exists) |
 | R-5.1 | T-100, T-200 |
 | R-5.2 | T-109 |
-| R-5.3 | T-107, T-217, T-218 |
+| R-5.3 | T-107 (strict raise, `broker_csv.py`); T-217, T-218 (documented exception, `bank_xlsx.py`) |
 | R-5.4 | T-137 |
 | R-6.1 | T-112, T-113 |
 | R-6.1a | T-360 |
@@ -468,7 +472,7 @@ packages land; a work package is not done until its rules appear here.
 | R-7.7 | T-208, T-209 |
 | R-7.8 | T-210 |
 | R-7.9 | T-211 |
-| R-7.10 | T-212..T-217 |
+| R-7.10 | T-212..T-216, T-220..T-224 |
 | R-7.11 | T-217, T-218 |
 | R-7.12 | (known risk — no test; revisited when a card adapter is specified) |
 | R-7.13 | T-223 |

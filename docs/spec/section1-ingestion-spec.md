@@ -401,6 +401,13 @@ assigns the pre-classification default only.
 
 **R-5.3** An adapter MUST raise rather than guess when a row matches no mapping rule
 (`UnknownMovementError`). Defaulting an unrecognized row to any movement type is forbidden.
+**Exception**: `bank_xlsx.py`'s own R-7.11 (revised) — its source format's free-text `Concepto`
+proved too unstable to enumerate exhaustively in advance (see R-7.11's rationale); its
+sign-based last resort always emits a warning, so nothing is silent. This exception is scoped
+to `bank_xlsx.py` alone — every other adapter (`broker_csv.py` included, T-107) stays bound
+by the strict rule above: their source formats carry richer structured fields (explicit
+category/type codes, IBANs, transaction ids) that make an exhaustive mapping realistic, so
+there is no equivalent case for relaxing it there.
 
 **R-5.4** An adapter MUST be a pure function of the file bytes: no network, no clock, no
 environment lookups. *(rationale: required by R-1.20 determinism and by testability.)*
@@ -585,11 +592,29 @@ case-insensitive, accent-insensitive matching:
 | 7 | `TRANSFERENCIA (INMEDIATA )?DE (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT` (pre-classification); `name` → `counterparty_name` |
 | 8 | `TRANSFERENCIA (INMEDIATA )?A (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL` (pre-classification); `name` → `counterparty_name` |
 | 9 | `NOMINA` or `ABONO NOMINA` | `PAYROLL_INCOME` |
+| 10 | `DEVOLUCION BIZUM RECIBIDO DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT`; `name` → `counterparty_name` |
+| 11 | `BIZUM A FAVOR DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL`; `name` → `counterparty_name` |
+| 12 | `BIZUM DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT`; `name` → `counterparty_name` |
 
-**R-7.11** No match ⇒ `UnknownMovementError`, regardless of amount sign. A catch-all default
-is forbidden. *(rationale: an unrecognized concept is exactly the case CLAUDE.md rule 15
-requires to surface; silently defaulting it to `EXPENSE` would quietly distort the savings
-rate.)*
+*(Bizum's own "De"/"A favor de" name is the receiving bank's record of the other registered
+party, not sender-editable free text -- same trust level as rule 7/8's ordinante name. Unlike
+a plain transfer, Bizum can never be internal: a phone number links to at most one account
+network-wide, so there is no owned-account collision to detect here; the name is captured
+only for R-1.10 traceability. The `CONCEPTO` suffix has no comma on real Bizum rows, unlike
+rules 7/8's transfers -- the comma is optional in rules 10-12.)*
+
+**R-7.11 (revised)** No match against rules 1-12 ⇒ classify by the amount's sign as a last
+resort: negative → `EXPENSE`, non-negative → `EXTERNAL_DEPOSIT` (`counterparty_name` stays
+`None` in both cases). This MUST always emit a warning naming the row and the exact
+unrecognized `Concepto` text. *(rationale, revised: the original prohibition on a catch-all
+existed to satisfy CLAUDE.md rule 15 -- never absorb something doubtful in silence. A real
+bank export showed this bank inventing new wording faster than a fixed rule list can track
+(bond redemptions, "INMEDIATA" transfers, "TARJ." abbreviations, dozens of ATM/refund/tax-debit
+variants), each one aborting the entire file until specifically added. The amount's sign is a
+reliable signal of real economic direction regardless of wording; pairing the sign-based
+default with a mandatory, per-row warning satisfies rule 15 (nothing is silent) without
+requiring every future wording variant to be anticipated in advance. Project owner's explicit
+decision, 2026-09-25.)*
 
 **R-7.12 (known risk, not resolved)** Rule 6 charges the credit-card settlement as an
 expense. If a card-statement adapter is ever added, the individual card purchases would

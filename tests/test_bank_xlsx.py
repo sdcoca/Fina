@@ -19,7 +19,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from builders import BANK_XLSX, bank_xlsx_with
 from fina.adapters import bank_xlsx
-from fina.errors import ParseError, UnknownMovementError, UnsupportedCurrencyError
+from fina.errors import ParseError, UnsupportedCurrencyError
 from fina.models import MovementType
 
 FIXTURE_HOLDER = "FERNANDEZ ORTIZ LUCIA"
@@ -391,6 +391,9 @@ def test_malformed_saldo_integration_exact_fields(tmp_path: Path) -> None:
         ("TRANSFERENCIA INMEDIATA A JUAN PEREZ", MovementType.EXTERNAL_WITHDRAWAL),
         ("NOMINA EJEMPLO S.A.", MovementType.PAYROLL_INCOME),
         ("ABONO NOMINA EJEMPLO S.A.", MovementType.PAYROLL_INCOME),
+        ("BIZUM DE JUAN PEREZ", MovementType.EXTERNAL_DEPOSIT),
+        ("BIZUM A FAVOR DE JUAN PEREZ", MovementType.EXTERNAL_WITHDRAWAL),
+        ("DEVOLUCION BIZUM RECIBIDO DE JUAN PEREZ", MovementType.EXTERNAL_DEPOSIT),
     ],
 )
 def test_t212_each_concept_rule_matches_its_canonical_example(
@@ -425,17 +428,20 @@ def test_t213_rule_order_compra_wins_over_recibo_substring(tmp_path: Path) -> No
 
 def test_compra_without_tarjeta_does_not_match_rule_3(tmp_path: Path) -> None:
     """Rule 3 requires *both* the 'COMPRA ' prefix *and* the word 'TARJETA' -- a concept with
-    only the prefix falls through to UnknownMovementError, proving the condition is `and`,
-    not `or`.
+    only the prefix falls through to the last-resort sign-based rule instead, which (unlike
+    rule 3) is sign-dependent: a positive amount lands on EXTERNAL_DEPOSIT, proving rule 3
+    itself never matched (it would have forced EXPENSE regardless of sign).
     """
 
     def mutate(ws: Worksheet) -> None:
         ws["C9"] = "COMPRA Ejemplo sin palabra clave"
-        ws["D9"] = "-1,00€"
+        ws["D9"] = "1,00€"
 
     path = bank_xlsx_with(tmp_path, mutate, filename="compranotarjeta.xlsx")
-    with pytest.raises(UnknownMovementError):
-        bank_xlsx.parse(path)
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.movement_type is MovementType.EXTERNAL_DEPOSIT
+    assert any("COMPRA Ejemplo sin palabra clave" in w.message for w in result.warnings)
 
 
 def test_transferencia_a_captures_the_counterparty_name(tmp_path: Path) -> None:
@@ -450,15 +456,15 @@ def test_transferencia_a_captures_the_counterparty_name(tmp_path: Path) -> None:
     assert entry.counterparty_name == "JUAN PEREZ GARCIA"
 
 
-def test_unknown_movement_error_carries_correct_source_file(tmp_path: Path) -> None:
+def test_unrecognized_concept_warning_carries_correct_source_file(tmp_path: Path) -> None:
     def mutate(ws: Worksheet) -> None:
         ws["C9"] = "ALGO TOTALMENTE DESCONOCIDO"
         ws["D9"] = "-1,00€"
 
     path = bank_xlsx_with(tmp_path, mutate, filename="unknownfile.xlsx")
-    with pytest.raises(UnknownMovementError) as exc_info:
-        bank_xlsx.parse(path)
-    assert exc_info.value.source_file == "unknownfile.xlsx"
+    result = bank_xlsx.parse(path)
+    warning = next(w for w in result.warnings if "ALGO TOTALMENTE DESCONOCIDO" in w.message)
+    assert warning.source_file == "unknownfile.xlsx"
 
 
 def test_t214_transferencia_de_with_concepto_suffix_strips_it(tmp_path: Path) -> None:
@@ -501,6 +507,50 @@ def test_transferencia_inmediata_de_with_concepto_suffix_strips_it(tmp_path: Pat
     assert entry.counterparty_name == "JUAN PEREZ GARCIA"
 
 
+def test_bizum_de_captures_name_with_concepto_suffix_no_comma(tmp_path: Path) -> None:
+    """Found on a real bank export: Bizum's Concepto suffix has no comma before "CONCEPTO",
+    unlike TRANSFERENCIA's -- the name-extraction regex must not require one.
+    """
+
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = "BIZUM DE SERGIO ROBLES MARTINEZ CONCEPTO Sin concepto"
+        ws["D9"] = "10,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="bizumde.xlsx")
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.movement_type is MovementType.EXTERNAL_DEPOSIT
+    assert entry.counterparty_name == "SERGIO ROBLES MARTINEZ"
+
+
+def test_bizum_a_favor_de_captures_name_with_colon_suffix(tmp_path: Path) -> None:
+    """Found on a real bank export: outgoing Bizum rows carry "CONCEPTO:" (with a colon),
+    while incoming ones carry "CONCEPTO" alone -- the regex tolerates both.
+    """
+
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = "BIZUM A FAVOR DE REBEKAH JOHNSON CONCEPTO: Trains and Dad Gift"
+        ws["D9"] = "-10,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="bizumafavor.xlsx")
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.movement_type is MovementType.EXTERNAL_WITHDRAWAL
+    assert entry.counterparty_name == "REBEKAH JOHNSON"
+
+
+def test_devolucion_bizum_recibido_de_captures_the_counterparty_name(tmp_path: Path) -> None:
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = "DEVOLUCION BIZUM RECIBIDO DE Pablo Gonzalez Roca CONCEPTO uber"
+        ws["D9"] = "5,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="devolucionbizum.xlsx")
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.movement_type is MovementType.EXTERNAL_DEPOSIT
+    assert entry.counterparty_name == "Pablo Gonzalez Roca"
+
+
 @pytest.mark.parametrize("concepto", ["Recibo Ejemplo S.A.", "RECÍBO Ejemplo S.A."])
 def test_t216_accent_and_case_insensitive_concept_matching(tmp_path: Path, concepto: str) -> None:
     def mutate(ws: Worksheet) -> None:
@@ -513,17 +563,34 @@ def test_t216_accent_and_case_insensitive_concept_matching(tmp_path: Path, conce
     assert entry.movement_type is MovementType.EXPENSE
 
 
-@pytest.mark.parametrize("amount", ["-1,00€", "1,00€"])
-def test_t217_t218_unmatched_concept_raises_regardless_of_sign(tmp_path: Path, amount: str) -> None:
+@pytest.mark.parametrize(
+    ("amount", "expected"),
+    [
+        ("-1,00€", MovementType.EXPENSE),
+        ("1,00€", MovementType.EXTERNAL_DEPOSIT),
+        ("0,00€", MovementType.EXTERNAL_DEPOSIT),
+    ],
+)
+def test_t217_t218_unmatched_concept_falls_back_to_sign_based_classification(
+    tmp_path: Path, amount: str, expected: MovementType
+) -> None:
+    """R-7.11 (revised): a concept matching no named rule no longer aborts the file -- it is
+    classified by the amount's sign (negative -> EXPENSE, non-negative -> EXTERNAL_DEPOSIT)
+    and always emits a warning naming the exact concept and row (never silent).
+    """
+
     def mutate(ws: Worksheet) -> None:
         ws["C9"] = "UN CONCEPTO TOTALMENTE DESCONOCIDO"
         ws["D9"] = amount
 
     path = bank_xlsx_with(tmp_path, mutate, filename="unknownconcept.xlsx")
-    with pytest.raises(UnknownMovementError) as exc_info:
-        bank_xlsx.parse(path)
-    assert exc_info.value.source_row == 9
-    assert exc_info.value.observed == "UN CONCEPTO TOTALMENTE DESCONOCIDO"
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert entry.movement_type is expected
+    assert entry.counterparty_name is None
+    warning = next(w for w in result.warnings if w.source_row == 9)
+    assert "UN CONCEPTO TOTALMENTE DESCONOCIDO" in warning.message
+    assert expected.value in warning.message
 
 
 # ---------------------------------------------------------------------------
