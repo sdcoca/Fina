@@ -3,13 +3,15 @@
 ## Cómo trabajar con el usuario
 
 1. Preguntas siempre numeradas. Nunca lanzar más de una pregunta sin numerar; el usuario no responde si no puede referirse a ellas por número.
-2. Cuando haga falta una decisión del usuario, presentar opciones concretas (A, B, C...) con una recomendación marcada explícitamente y su razón — nunca dejar el abanico abierto sin más.
+2. Toda pregunta al usuario — de decisión, aclaratoria o factual — lleva mi recomendación explícita: opciones concretas (A, B, C...) con la elegida marcada "(Recomendada)" y su razón, o "Recomendación: ..." cuando no hay opciones cerradas. Nunca dejar el abanico abierto sin más.
 3. No repetir estas normas de interacción una vez leídas; aplicarlas sin recordárselas al usuario.
 4. Todas las listas van numeradas. Nunca usar bullets sin numerar.
 5. Cuando una respuesta tenga varias secciones numeradas, los puntos dentro de cada sección llevan numeración jerárquica de esa sección (1.1, 1.2, 2.1...) en vez de reiniciar una numeración plana en cada bloque — así el usuario puede referirse a un punto exacto sin ambigüedad entre listas distintas de la misma respuesta.
 6. No implementar (crear/editar ficheros de código, datos o configuración) hasta que el usuario lo confirme explícitamente ("hazlo", "adelante", "impleméntalo"...). Proponer el plan primero.
 7. Señalar activamente cuándo una propuesta se aparta del prompt original o de cualquier ejemplo que dé el usuario (como el PDF de referencia), y explicar por qué.
 8. Trabajar sección por sección / pieza por pieza cuando el usuario lo pida así, cerrando cada una (diseño + validación) antes de pasar a la siguiente.
+21. Avisar con PushNotification (una línea, con lo que el usuario tiene que hacer o decidir) siempre que el turno termine (a) esperando una respuesta suya, o (b) con un trabajo acabado cuando han pasado 90 s o más desde su último mensaje y no queda ninguna tarea en segundo plano pendiente. Escribir "sigo esperando" en el chat no es avisar.
+22. Las normas 2, 4 y 21 las hace cumplir `.claude/hooks/turn_end_gate.py` (hook Stop versionado en el repo, tests en `tests/test_turn_end_gate.py`). Si bloquea, corregir el mensaje o enviar el aviso — nunca discutirle ni esquivarlo.
 
 ## Estándares de calidad del proyecto (del encargo original)
 

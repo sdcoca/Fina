@@ -1,4 +1,7 @@
-.claude/
+# Session-local Claude state stays out; the project's own hook config is versioned.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
 __pycache__/
 *.pyc

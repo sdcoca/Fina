@@ -52,7 +52,7 @@ exclude_lines = [
 [tool.mypy]
 strict = true
 python_version = "3.11"
-files = ["src/fina", "web/py"]
+files = ["src/fina", "web/py", ".claude/hooks"]
 mypy_path = ["src"]
 warn_unused_configs = true
 disallow_any_explicit = false
@@ -102,5 +102,7 @@ pytest_add_cli_args_test_selection = [
     "--ignore=tests/test_pwa_subpath_deployment.py",
     "--ignore=tests/test_pyodide_bridge.py",
     "--ignore=tests/test_pyodide_vendor.py",
+    # Tests the .claude/hooks Stop hook, which mutmut's mutants/ tree does not mirror.
+    "--ignore=tests/test_turn_end_gate.py",
 ]
 runner = "python -m pytest -x -q"
