@@ -661,3 +661,10 @@ WP-19a + WP-19b final run (`Warning.rule` added, bridge/app untouched by mutmut)
 45 survivors + 1 timeout, every one documented in this file. `classification.py` 99.43%,
 `adapters/own_accounts_json.py` 99.09%, `pipeline.py` 97.82%, `models.py` 96.61%,
 `section1.py` 99.07% — all thresholds met.
+
+## R-8.5 revised (`reconciliation.py` — header difference is a warning)
+
+Owner's real Santander export: header 1,126.84 € vs last listed movement 1,131.84 € (a 5 €
+payment not listed yet) blocked the whole report. `reconcile` now returns the R-8.5 warnings.
+`mutmut run`: 3208 mutants, 45 survivors + 1 timeout, all already documented above; every
+mutant of the new warning (exact message, fields, `rule`, the loop's `continue`) is killed.

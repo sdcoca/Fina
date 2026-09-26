@@ -27,9 +27,8 @@ Four cases, matching WP-12's spec verbatim:
    `fina.cli.main(["build", ...])` run and the browser bridge's `run()` over the same two
    fixtures' bytes.
 4. `test_bridge_run_returns_a_structured_error_and_writes_nothing_on_reconciliation_failure`
-   -- a fixture built the same way `tests/test_pipeline.py`'s own
-   `test_run_pipeline_genuinely_wires_header_balances_into_reconcile` builds one (corrupting
-   only the bank export's header-stated balance via `builders.bank_xlsx_with`) makes `run()`
+   -- a bank fixture with one movement's balance one cent off (R-8.2's chain breaks, via
+   `builders.bank_xlsx_with`) makes `run()`
    return a structured error with every success-only field (`manifest_json`, `chart_html`,
    `summary`) absent/`None` -- not merely "unchecked", each is asserted explicitly.
 """
@@ -391,17 +390,15 @@ def test_bridge_run_lists_pending_accounts_as_candidates_not_warnings(
 def test_bridge_run_returns_a_structured_error_and_writes_nothing_on_reconciliation_failure(
     tmp_path: Path, bridge_server: str
 ) -> None:
-    """Mirrors `tests/test_pipeline.py::
-    test_run_pipeline_genuinely_wires_header_balances_into_reconcile`'s own construction: only
-    the header's own stated balance (R-7.2) is corrupted, so a `ReconciliationError` can only
-    come from R-8.5's header cross-check genuinely running -- both natively and through the
-    bridge.
+    """Mirrors `tests/test_reconciliation.py::test_t351`'s construction: one movement's
+    declared balance is one cent off, so R-8.2's chain breaks -- still fatal (a header-only
+    difference is a warning since R-8.5's revision) -- both natively and through the bridge.
     """
 
     def mutate(ws: Worksheet) -> None:
-        ws["D4"] = "1,00€ EUR"  # header balance, unrelated to any row's declared_balance
+        ws["E10"] = "6.196,16€"  # a movement's balance one cent off: R-8.2's chain breaks
 
-    corrupted = bank_xlsx_with(tmp_path, mutate, filename="banco_badheader.xlsx")
+    corrupted = bank_xlsx_with(tmp_path, mutate, filename="banco_badchain.xlsx")
 
     # Confirm the fixture construction is genuinely reconciliation-breaking, natively, before
     # trusting the browser side's own error report.

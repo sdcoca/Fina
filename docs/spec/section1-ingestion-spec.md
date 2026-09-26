@@ -715,10 +715,15 @@ zero-amount warnings (R-2.16). The residual risk — an export missing its oldes
 understate the balance undetected — is accepted; Q-D stays open for a future
 statement-based cross-check.)*
 
-**R-8.5** After reconciliation, the final `declared_balance` of a bank account MUST equal the
-balance stated in that file's header block (R-7.2); a mismatch raises `ReconciliationError`
-with both figures. *(rationale: an independent second check of the same file against
-itself — cheap, and catches a truncated export.)*
+**R-8.5 (revised)** After reconciliation, the final `declared_balance` of a bank account is
+compared with the balance stated in that file's header block (R-7.2); a mismatch emits one
+warning (`rule == "R-8.5"`) naming the file, the last row, its date, both figures and the
+difference, and saying the figures use the listed movements. It does not stop the run.
+*(rationale: an independent second check of the same file against itself. Originally fatal;
+revised on the owner's real statement (2026-09-26): the header, stamped at export time,
+already included a 5 € card payment the bank had not listed as a movement yet, and the whole
+report was blocked for something only a later export can fix. The movements chain (R-8.2)
+stays fatal; the header difference is flagged, never absorbed — CLAUDE.md rules 11 and 15.)*
 
 ---
 

@@ -19,7 +19,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from builders import BANK_XLSX, BROKER_CSV, bank_xlsx_with
 from fina.adapters import bank_xlsx, broker_csv
 from fina.errors import ReconciliationError
-from fina.models import LedgerEntry, MovementType
+from fina.models import LedgerEntry, MovementType, Warning
 from fina.reconciliation import anchor_at, reconcile
 
 SOURCE_FILE = "banco_ejemplo.xlsx"
@@ -157,7 +157,7 @@ def test_t354_broker_accounts_with_no_declared_balance_are_skipped_silently() ->
     """
     result = broker_csv.parse(BROKER_CSV)
     assert all(e.declared_balance is None for e in result.entries)
-    assert reconcile(result.entries) is None
+    assert reconcile(result.entries) == ()
 
 
 def test_a_no_balance_account_does_not_stop_later_accounts_being_checked(tmp_path: Path) -> None:
@@ -188,19 +188,54 @@ def test_t355_no_balance_accounts_add_no_warning_to_a_full_run(tmp_path: Path) -
 # ---------------------------------------------------------------------------
 
 
-def test_t356_final_balance_vs_header_balance_mismatch_raises() -> None:
+def test_t356_final_balance_vs_header_balance_mismatch_warns() -> None:
+    """R-8.5 (revised): a header that disagrees with the last listed movement is flagged with
+    every figure needed to check it, and the run goes on (owner's real statement: a pending
+    card payment already in the header balance)."""
     result = bank_xlsx.parse(BANK_XLSX)
-    with pytest.raises(ReconciliationError) as exc_info:
+    warnings = reconcile(
+        result.entries,
+        header_balances={("bank_es", "banco_ejemplo.xlsx"): Decimal("6178.75")},
+    )
+    assert warnings == (
+        Warning(
+            message=(
+                "banco_ejemplo.xlsx: the file header states a balance of 6178.75 EUR, but its "
+                "last listed movement (row 9, 2027-03-07) leaves 6183.75 EUR -- a difference "
+                "of -5.00 EUR, usually a movement the bank had not listed yet (a pending card "
+                "payment, say). Figures use the listed movements; export the statement again "
+                "in a few days to include it"
+            ),
+            source_file="banco_ejemplo.xlsx",
+            source_row=9,  # the final declared-balance row, per §12.1
+            rule="R-8.5",
+        ),
+    )
+
+
+def test_matching_header_balance_warns_nothing() -> None:
+    result = bank_xlsx.parse(BANK_XLSX)
+    assert reconcile(
+        result.entries,
+        header_balances={("bank_es", "banco_ejemplo.xlsx"): Decimal("6183.75")},
+    ) == ()
+
+
+def test_a_header_warning_does_not_stop_later_accounts_being_checked(tmp_path: Path) -> None:
+    """Two bank accounts: the first one's header disagrees, the second one's chain is broken.
+    The header difference is only a warning, so the chain break must still raise."""
+
+    def other_account(ws: Worksheet) -> None:
+        ws["A2"] = "ES00 0000 0000 0000 0000 0203"
+        ws["E10"] = "6.196,16€"
+
+    first = bank_xlsx.parse(BANK_XLSX)
+    second = bank_xlsx.parse(bank_xlsx_with(tmp_path, other_account, filename="other.xlsx"))
+    with pytest.raises(ReconciliationError):
         reconcile(
-            result.entries,
+            [*first.entries, *second.entries],
             header_balances={("bank_es", "banco_ejemplo.xlsx"): Decimal("1.00")},
         )
-    err = exc_info.value
-    assert err.source_file == "banco_ejemplo.xlsx"
-    assert err.source_row == 9  # the final declared-balance row, per §12.1
-    assert err.expected == Decimal("1.00")
-    assert err.declared == Decimal("6183.75")
-    assert err.delta == Decimal("1.00") - Decimal("6183.75")
 
 
 def test_header_balance_check_is_skipped_when_not_supplied() -> None:
@@ -208,8 +243,8 @@ def test_header_balance_check_is_skipped_when_not_supplied() -> None:
     R-8.2/R-8.3 still run.
     """
     result = bank_xlsx.parse(BANK_XLSX)
-    reconcile(result.entries, header_balances={})
-    reconcile(result.entries, header_balances=None)
+    assert reconcile(result.entries, header_balances={}) == ()
+    assert reconcile(result.entries, header_balances=None) == ()
 
 
 # ---------------------------------------------------------------------------

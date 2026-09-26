@@ -245,16 +245,14 @@ def test_wp15_two_session_persistence_and_cache_integrity(
             assert cache_before_failure["summary"]["real_net_worth"] == expected_bank_only["real_net_worth"]
 
             # --- Force a failing run: pick a shape-recognized but reconciliation-breaking file
-            # (only the bank export's header-stated balance is corrupted, R-7.2 -- the same
-            # construction tests/test_pipeline.py's own
-            # test_run_pipeline_genuinely_wires_header_balances_into_reconcile and
-            # tests/test_pyodide_bridge.py's own bridge test use). It sniffs as bank_es_xlsx
+            # (one movement's declared balance is one cent off, so R-8.2's chain breaks -- the
+            # same construction tests/test_pyodide_bridge.py's own failure test uses). It sniffs as bank_es_xlsx
             # (shape-only recognition, never content-validated) so it IS added to rawFiles and
             # included in the next active-set run, which must then fail. ---
             def mutate(ws: Worksheet) -> None:
-                ws["D4"] = "1,00€ EUR"  # header balance, unrelated to any row's declared_balance
+                ws["E10"] = "6.196,16€"  # a movement's balance one cent off: R-8.2's chain breaks
 
-            corrupted_path = bank_xlsx_with(tmp_path, mutate, filename="banco_badheader.xlsx")
+            corrupted_path = bank_xlsx_with(tmp_path, mutate, filename="banco_badchain.xlsx")
 
             # Again: a (bank-only) chart is already showing from the toggle step above, so this
             # must wait on `__finaRunSeq`, not the generic chart/error-visible check.

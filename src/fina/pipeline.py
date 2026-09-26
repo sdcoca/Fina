@@ -155,7 +155,7 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
     candidates = ownership_candidates(all_entries, owned_accounts, not_owned, estimated)
     ledger = classified_entries + estimated
 
-    reconcile(ledger, header_balances)
+    all_warnings.extend(reconcile(ledger, header_balances))
 
     series = compute_section1(ledger)
 

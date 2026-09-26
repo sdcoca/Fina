@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from builders import BANK_XLSX, BROKER_CSV
-from fina.errors import DuplicateSourceError, ParseError, ReconciliationError
+from fina.errors import DuplicateSourceError, ParseError
 from fina.io_utils import sha256_of_file
 from fina.pipeline import PipelineResult, manifest_dict, run_pipeline
 from fina.section1 import Section1Period
@@ -80,8 +80,9 @@ def test_run_pipeline_genuinely_wires_header_balances_into_reconcile(tmp_path: P
     """An end-to-end proof that `run_pipeline` really does thread the real adapter name and
     the real `header_balances` mapping through to `reconcile` (not `None`/dropped at either
     call site): corrupts *only* the header's own stated balance (R-7.2), leaving every row's
-    declared_balance internally consistent (R-8.2's chain still closes) -- so a
-    `ReconciliationError` here can only come from R-8.5's header cross-check actually running.
+    declared_balance internally consistent (R-8.2's chain still closes) -- so the R-8.5
+    warning here can only come from the header cross-check actually running, and the run
+    still produces its figures (R-8.5 revised).
     """
     from openpyxl.worksheet.worksheet import Worksheet
 
@@ -94,10 +95,12 @@ def test_run_pipeline_genuinely_wires_header_balances_into_reconcile(tmp_path: P
     input_dir.mkdir()
     bank_xlsx_with(input_dir, mutate, filename="banco_badheader.xlsx")
 
-    with pytest.raises(ReconciliationError) as exc_info:
-        run_pipeline(input_dir)
-    assert exc_info.value.expected == Decimal("1.00")
-    assert exc_info.value.declared == Decimal("6183.75")
+    result = run_pipeline(input_dir)
+    (warning,) = [w for w in result.warnings if w.rule == "R-8.5"]
+    assert warning.source_file == "banco_badheader.xlsx"
+    assert "states a balance of 1.00 EUR" in warning.message
+    assert "leaves 6183.75 EUR" in warning.message
+    assert result.series[-1].real_net_worth == Decimal("6183.75")
 
 
 def test_write_manifest_exact_file_contents(tmp_path: Path) -> None:

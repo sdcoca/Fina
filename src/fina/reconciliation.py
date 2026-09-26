@@ -13,7 +13,7 @@ from datetime import date as _date
 from decimal import Decimal
 
 from fina.errors import ReconciliationError
-from fina.models import LedgerEntry
+from fina.models import LedgerEntry, Warning
 
 #: An entry paired with its own `declared_balance`, already narrowed to `Decimal` (never
 #: `None`) by construction -- see `_with_declared_balance`. Keeping the narrowing inside one
@@ -75,36 +75,45 @@ def _check_header_balance(
     institution: str,
     pairs: Sequence[_DeclaredPair],
     header_balances: Mapping[tuple[str, str], Decimal],
-) -> None:
-    """R-8.5: the account's final (most recent, per R-1.22 order) declared balance must equal
-    the balance stated in that entry's own file's header block, when the caller has supplied
-    it (`header_balances` is populated by whoever has filesystem access to reopen the source
-    file and read its header -- e.g. via `bank_xlsx.read_header_block` -- since this module is
-    a pure function of already-parsed entries and never touches the filesystem itself,
-    R-5.4-style).
+) -> Warning | None:
+    """R-8.5 (revised): the account's final (most recent, per R-1.22 order) declared balance is
+    compared with the balance stated in that entry's own file's header block, when the caller
+    has supplied it (`header_balances` is populated by whoever has filesystem access to reopen
+    the source file and read its header -- e.g. via `bank_xlsx.read_header_block` -- since this
+    module is a pure function of already-parsed entries and never touches the filesystem
+    itself, R-5.4-style). A mismatch is a warning, not an error: the header is stamped at
+    export time and can already include a movement the bank has not listed yet.
     """
     final_entry, final_balance = pairs[-1]
     key = (institution, final_entry.source_file)
     if key not in header_balances:
-        return
+        return None
     header_balance = header_balances[key]
-    if final_balance != header_balance:
-        raise ReconciliationError(
-            source_file=final_entry.source_file,
-            source_row=final_entry.source_row,
-            expected=header_balance,
-            declared=final_balance,
-            delta=header_balance - final_balance,
-        )
+    if final_balance == header_balance:
+        return None
+    return Warning(
+        message=(
+            f"{final_entry.source_file}: the file header states a balance of {header_balance} "
+            f"EUR, but its last listed movement (row {final_entry.source_row}, "
+            f"{final_entry.date.isoformat()}) leaves {final_balance} EUR -- a difference of "
+            f"{header_balance - final_balance} EUR, usually a movement the bank had not listed "
+            "yet (a pending card payment, say). Figures use the listed movements; export the "
+            "statement again in a few days to include it"
+        ),
+        source_file=final_entry.source_file,
+        source_row=final_entry.source_row,
+        rule="R-8.5",
+    )
 
 
 def reconcile(
     entries: Sequence[LedgerEntry],
     header_balances: Mapping[tuple[str, str], Decimal] | None = None,
-) -> None:
+) -> tuple[Warning, ...]:
     """Run R-8.1..R-8.5 over every `(institution, account)` group in `entries`.
 
-    Raises `ReconciliationError` on the first violation found (R-8.2 or R-8.5). A group that
+    Raises `ReconciliationError` on the first R-8.2 violation found; returns one warning per
+    account whose final balance disagrees with its file's header (R-8.5). A group that
     carries no declared balance at all (e.g. the broker's accounts, whose source format has no
     running-balance column) is skipped silently (R-8.4): its balance is summed from real
     movements, not estimated, and there is nothing the user could do about the missing
@@ -113,12 +122,16 @@ def reconcile(
     no entry in this mapping simply skips that one check (R-8.2/R-8.3 still apply regardless).
     """
     resolved_header_balances = header_balances or {}
+    warnings: list[Warning] = []
     for (institution, _account), group in _group_by_account(entries).items():
         pairs = _with_declared_balance(sorted(group, key=sort_key))
         if not pairs:
             continue
         _check_balance_chain(pairs)
-        _check_header_balance(institution, pairs, resolved_header_balances)
+        warning = _check_header_balance(institution, pairs, resolved_header_balances)
+        if warning is not None:
+            warnings.append(warning)
+    return tuple(warnings)
 
 
 def anchor_at(
