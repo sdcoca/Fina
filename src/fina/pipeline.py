@@ -14,8 +14,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from fina import __version__
-from fina.adapters import bank_xlsx, broker_csv
-from fina.classification import classify_entries, collect_owned_accounts
+from fina.adapters import bank_xlsx, broker_csv, own_accounts_json
+from fina.classification import (
+    OwnershipCandidate,
+    classify_entries,
+    collect_owned_accounts,
+    mirror_unverified_transfers,
+    ownership_candidates,
+)
 from fina.errors import ParseError
 from fina.io_utils import check_no_duplicate_file_contents, sha256_of_file
 from fina.models import AccountDeclaration, AdapterResult, LedgerEntry, Warning
@@ -28,6 +34,7 @@ _AdapterEntry = tuple[str, Callable[[Path], bool], Callable[[Path], AdapterResul
 _ADAPTERS: tuple[_AdapterEntry, ...] = (
     ("trade_republic_broker_csv", broker_csv.sniff, broker_csv.parse),
     ("bank_es_xlsx", bank_xlsx.sniff, bank_xlsx.parse),
+    ("own_accounts_json", own_accounts_json.sniff, own_accounts_json.parse),
 )
 
 
@@ -48,6 +55,7 @@ class PipelineResult:
     owned_accounts: tuple[AccountDeclaration, ...]
     entries: tuple[LedgerEntry, ...]
     warnings: tuple[Warning, ...]
+    ownership_candidates: tuple[OwnershipCandidate, ...]
     series: tuple[Section1Period, ...]
     tool_version: str
 
@@ -121,6 +129,7 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
     all_accounts: list[AccountDeclaration] = []
     all_entries: list[LedgerEntry] = []
     all_warnings: list[Warning] = []
+    not_owned: set[str] = set()
     header_balances: dict[tuple[str, str], Decimal] = {}
 
     for file_path in files:
@@ -132,21 +141,30 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
         all_accounts.extend(parsed.accounts)
         all_entries.extend(parsed.entries)
         all_warnings.extend(parsed.warnings)
+        not_owned.update(parsed.not_owned)
         header_balances.update(_header_balances_for(adapter_name, file_path))
 
     owned_accounts = collect_owned_accounts(all_accounts)
-    classified_entries, classification_warnings = classify_entries(all_entries, owned_accounts)
+    classified_entries, classification_warnings = classify_entries(
+        all_entries, owned_accounts, not_owned
+    )
     all_warnings.extend(classification_warnings)
+    # R-3.9: the estimated other leg of every transfer to/from a confirmed own account with no
+    # statement -- appended to the one ledger (CLAUDE.md rule 16), never kept aside.
+    estimated = mirror_unverified_transfers(classified_entries, owned_accounts)
+    candidates = ownership_candidates(all_entries, owned_accounts, not_owned, estimated)
+    ledger = classified_entries + estimated
 
-    reconcile(classified_entries, header_balances)
+    reconcile(ledger, header_balances)
 
-    series = compute_section1(classified_entries)
+    series = compute_section1(ledger)
 
     result = PipelineResult(
         input_files=tuple(input_files),
         owned_accounts=owned_accounts,
-        entries=classified_entries,
+        entries=ledger,
         warnings=tuple(all_warnings),
+        ownership_candidates=candidates,
         series=series,
         tool_version=__version__,
     )
@@ -193,12 +211,28 @@ def manifest_dict(result: PipelineResult) -> dict[str, object]:
             {"message": w.message, "source_file": w.source_file, "source_row": w.source_row}
             for w in result.warnings
         ],
+        "ownership_candidates": [
+            {
+                "iban": c.iban,
+                "holder_names": list(c.holder_names),
+                "rows": [{"source_file": f, "source_row": r} for f, r in c.rows],
+                "total_in": str(c.total_in),
+                "total_out": str(c.total_out),
+                "first_date": c.first_date.isoformat(),
+                "last_date": c.last_date.isoformat(),
+                "status": c.status,
+                "estimated_balance": str(c.estimated_balance),
+                "unseen_income": str(c.unseen_income),
+            }
+            for c in result.ownership_candidates
+        ],
         "section1_series": [
             {
                 "month": p.month.isoformat(),
                 "as_of": p.as_of.isoformat(),
                 "is_partial": p.is_partial,
                 "real_net_worth": str(p.real_net_worth),
+                "estimated_net_worth": str(p.estimated_net_worth),
                 "completeness": p.completeness,
                 "savings_flow": str(p.savings_flow),
                 "savings_only": str(p.savings_only),

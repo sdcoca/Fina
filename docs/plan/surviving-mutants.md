@@ -281,6 +281,9 @@ check. No source change was needed; the test's assertion style was the gap. This
 
 ### `cli.py` — 3 documented equivalents
 
+*(Renumbered by WP-19a to `x__build__mutmut_35`, `x__build__mutmut_37`, `x__build__mutmut_42`: the new "of which estimated"
+line shifted `_build`'s mutant numbering; same three diffs, same reasoning.)*
+
 | Mutant ID | Diff | Justification |
 |---|---|---|
 | `x__build__mutmut_29` | `(out_dir / "section1_chart.html").write_text(chart_html, encoding="utf-8")` → `encoding=None` | **Equivalent**, identical reasoning to `pipeline.py`'s `write_manifest` survivor above — this environment's Python always runs in UTF-8 mode with no alternate locale available, so `encoding=None` and `encoding="utf-8"` are behaviorally indistinguishable here. |
@@ -626,3 +629,35 @@ effect. Now killed directly by
 then a bank file with a one-cent-corrupted balance — must raise). Confirmed by applying the
 mutation by hand (test fails) and by a targeted `mutmut run` of that mutant (killed). The other
 survivors in `section1.py`/`pipeline.py` are the pre-existing documented equivalents.
+
+## WP-19a (`adapters/own_accounts_json.py`, `classification.py` — R-3.8 candidates, R-3.9 mirrors)
+
+First full run left ~55 survivors in the new code. Killed by strengthening tests:
+
+1. Every `ParseError` raised by the confirmation-file adapter now has all five fields pinned
+   (`source_file`, `source_row`, `column`, `raw_value`, `expected`), with non-ASCII input so
+   `ensure_ascii=True` is caught (`tests/test_own_accounts_json.py`).
+2. `x_ownership_candidates__mutmut_11` (`continue` → `break` on a statement-declared IBAN): a
+   real gap — a statement account's row would stop the scan. Killed by
+   `test_a_statement_account_row_does_not_stop_the_scan`.
+3. `_candidate`'s holder names: `or ""` became a filter (a decided account's row without a
+   counterparty name no longer lists a blank name) — `test_candidate_lists_only_the_names_actually_seen`.
+4. `_candidate` totals: sub-1 € amounts (`> 1` / `< 1`), bare `sum()` without a `Decimal`
+   start (int `0`), and zero rows adding decimal places — three new tests.
+5. `x_mirror_unverified_transfers__mutmut_39` (mirror keeping the real leg's
+   `declared_balance`): `test_mirror_never_carries_the_real_legs_declared_balance`.
+6. `x_manifest_dict__mutmut_25..30` (warning keys): uncovered since the fixtures stopped warning;
+   `test_manifest_records_the_pending_accounts_warning`.
+
+Documented equivalents:
+
+| Mutant | Change | Why it survives |
+|---|---|---|
+| `fina.classification.x_mirror_unverified_transfers__mutmut_20` | `counterparty_iban or ""` → `or "XXXX"` | **Equivalent.** Unreachable: `legs` only holds entries whose `counterparty_iban` is truthy (the comprehension's own filter). The `or ""` exists only for `mypy --strict`. |
+| `fina.adapters.own_accounts_json.x__load__mutmut_4` | `.decode("utf-8")` → `.decode("UTF-8")` | **Equivalent** — codec names are case-insensitive (see WP-1/WP-2). |
+| `fina.adapters.own_accounts_json.x__fail__mutmut_12` | `ensure_ascii=False` → `ensure_ascii=None` | **Equivalent.** `json.dumps` only tests `ensure_ascii` for truthiness; `None` and `False` behave identically. (`=True` and the dropped keyword, whose default is `True`, are killed by the non-ASCII tests.) |
+
+WP-19a + WP-19b final run (`Warning.rule` added, bridge/app untouched by mutmut): 3197 mutants,
+45 survivors + 1 timeout, every one documented in this file. `classification.py` 99.43%,
+`adapters/own_accounts_json.py` 99.09%, `pipeline.py` 97.82%, `models.py` 96.61%,
+`section1.py` 99.07% — all thresholds met.

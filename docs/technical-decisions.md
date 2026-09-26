@@ -105,3 +105,17 @@ The user only ever hands over documents for accounts that are theirs — so "thi
 ### 5.3 Consequence for adapters
 
 An adapter's output is therefore `(list[LedgerEntry], list[AccountDeclaration])`, not just ledger rows. The pipeline first collects every `AccountDeclaration` across all files in the run, then re-runs each adapter's internal/external classification against that combined set (a counterparty matches an own account by IBAN; matching by holder name alone is a lower-confidence fallback — see the full spec for the exact matching order).
+
+### 5.4 Amendment (2026-09-26): user-confirmed accounts without a statement
+
+The project owner's real exports reference six accounts under their own name for which they
+hold no statement in the app. Showing them only as warnings gave no way to act. Option 2 is
+kept as the default, and one explicit, document-backed exception is added: the user may
+confirm an account as theirs (or not) in the app, and that decision is written to an
+**own-accounts confirmation file** (spec R-3.8) that the pipeline reads like any other input.
+This departs from "an account is yours if and only if you supplied its statement" deliberately
+(CLAUDE.md rule 7): ownership is still backed by a document — the user's own dated decision,
+listed with the other stored files and included in backups — rather than by an unverifiable
+setting. A statement, when supplied, always wins: its declaration replaces the confirmation's
+estimated balance (spec R-3.9), and conflicting holders are still refused (R-3.3).
+

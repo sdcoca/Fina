@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import base64
 import http.server
+import json
 import shutil
 import tempfile
 import threading
@@ -50,7 +51,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from playwright.sync_api import Browser, BrowserContext, Page, Route
 
 from browser_support import launch_chromium
-from builders import BANK_XLSX, bank_xlsx_with
+from builders import BANK_XLSX, BROKER_CSV, bank_xlsx_with
 from fina import cli
 from fina.errors import ReconciliationError
 from fina.money import round_half_up
@@ -263,6 +264,7 @@ def test_bridge_run_is_byte_identical_to_the_native_cli_over_the_real_fixtures(
         "as_of": latest.as_of.isoformat(),
         "is_partial": latest.is_partial,
         "real_net_worth": str(round_half_up(latest.real_net_worth)),
+        "estimated": None,
         "savings_only": str(round_half_up(latest.savings_only)),
         "gap": str(round_half_up(latest.gap)),
     }
@@ -290,6 +292,95 @@ def test_bridge_run_is_byte_identical_to_the_native_cli_over_the_real_fixtures(
 
     assert result["warnings"] == expected_warnings
     assert result["summary"] == expected_summary
+    assert result["candidates"] == []
+
+
+def test_bridge_run_with_a_confirmation_file_matches_the_native_cli(
+    tmp_path: Path, bridge_server: str
+) -> None:
+    """R-3.8/R-3.9 through the bridge: the broker fixture alone plus a confirmation file that
+    marks its one pending account as owned. Manifest and chart stay byte-identical to the
+    native CLI; the candidate and the estimated share arrive as rounded display strings."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    shutil.copyfile(BROKER_CSV, input_dir / BROKER_CSV.name)
+    decisions = {
+        "format": "fina-own-accounts",
+        "version": 1,
+        "accounts": [
+            {
+                "iban": "ES0000000000000000000202",
+                "holder_name": "LUCIA FERNANDEZ ORTIZ",
+                "owned": True,
+                "decided_on": "2026-09-25",
+            }
+        ],
+    }
+    (input_dir / "cuentas-propias.json").write_text(json.dumps(decisions), encoding="utf-8")
+
+    native_out = tmp_path / "native_out"
+    assert cli.main(["build", "--input", str(input_dir), "--out", str(native_out)]) == 0
+
+    with launch_chromium() as browser:
+        context, page = _open_bridge_page(browser, bridge_server)
+        try:
+            result = _run_task(
+                page,
+                "(filesB64) => window.__finaStartRun(filesB64)",
+                [_encode_file(p) for p in sorted(input_dir.iterdir())],
+            )
+        finally:
+            context.close()
+
+    assert result["ok"] is True
+    assert result["manifest_json"].encode("utf-8") == (native_out / "manifest.json").read_bytes()
+    assert result["chart_html"].encode("utf-8") == (
+        native_out / "section1_chart.html"
+    ).read_bytes()
+    assert result["summary"]["estimated"] == "80.00"
+    assert result["candidates"] == [
+        {
+            "iban": "ES0000000000000000000202",
+            "holder_names": ["FERNANDEZ ORTIZ LUCIA"],
+            "status": "owned",
+            "transfers": 4,
+            "total_in": "25000.00",
+            "total_out": "80.00",
+            "first_date": "2023-03-10",
+            "last_date": "2023-10-10",
+            "estimated_balance": "80.00",
+            "unseen_income": "25000.00",
+        }
+    ]
+
+
+def test_bridge_run_lists_pending_accounts_as_candidates_not_warnings(
+    tmp_path: Path, bridge_server: str
+) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    shutil.copyfile(BROKER_CSV, input_dir / BROKER_CSV.name)
+    native_result = run_pipeline(input_dir)
+    assert any(w.rule == "R-3.6" for w in native_result.warnings)
+
+    with launch_chromium() as browser:
+        context, page = _open_bridge_page(browser, bridge_server)
+        try:
+            result = _run_task(
+                page,
+                "(filesB64) => window.__finaStartRun(filesB64)",
+                [_encode_file(BROKER_CSV)],
+            )
+        finally:
+            context.close()
+
+    assert result["warnings"] == [
+        w.message for w in native_result.warnings if w.rule != "R-3.6"
+    ]
+    assert [(c["iban"], c["status"]) for c in result["candidates"]] == [
+        ("ES0000000000000000000202", "pending")
+    ]
+    assert result["summary"]["estimated"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +427,7 @@ def test_bridge_run_returns_a_structured_error_and_writes_nothing_on_reconciliat
     assert result["chart_html"] is None
     assert result["summary"] is None
     assert result["warnings"] == []
+    assert result["candidates"] == []
     assert result["error"] is not None
     assert result["error"]["type"] == "ReconciliationError"
     assert str(native_expected) in result["error"]["message"]

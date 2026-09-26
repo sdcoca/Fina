@@ -438,6 +438,119 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+/* WP-19 (R-3.8): "Accounts in your name". One card per account; pending ones carry a warning
+ * edge, and a confirmed account missing data (unseen income, R-3.9) a highlighted note. Plain
+ * alpha backgrounds only, no backdrop-filter (rule 20). */
+.own-accounts-description {
+  margin: 0 0 12px;
+  color: var(--shell-ink-2);
+  font-size: 13.5px;
+}
+
+.own-accounts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.own-account {
+  padding: 10px 12px;
+  border: 1px solid var(--shell-border);
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+
+.own-account--pending {
+  border-left: 4px solid var(--shell-warning);
+}
+
+.own-account--not_owned {
+  color: var(--shell-ink-2);
+}
+
+.own-account p {
+  margin: 0 0 3px;
+  word-break: break-word;
+}
+
+.own-account-name {
+  font-weight: 600;
+}
+
+.own-account-iban {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--shell-ink-2);
+}
+
+.own-account-meta {
+  font-size: 12.5px;
+  color: var(--shell-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.own-account-balance {
+  font-variant-numeric: tabular-nums;
+}
+
+.own-account-missing {
+  margin-top: 6px !important;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--shell-warning-bg);
+  color: var(--shell-ink);
+  font-weight: 600;
+}
+
+.own-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.own-account-status {
+  font-size: 13px;
+  color: var(--shell-ink-2);
+  margin-right: auto;
+}
+
+.own-account-button {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--shell-accent);
+  color: var(--shell-accent);
+  background: transparent;
+}
+
+.own-account-button--mine {
+  color: #ffffff;
+  background: var(--shell-accent);
+}
+
+.own-account-button--change {
+  min-height: 30px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.own-account-button:active {
+  opacity: 0.85;
+}
+
+.own-account-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .chart-section {
   padding: 8px;
 }

@@ -1,5 +1,5 @@
 {
-  "version": "f2fa4d2d05298d10",
+  "version": "522bfb9b07e03877",
   "finaVersion": "0.1.0",
   "files": [
     "css/shell.css",
@@ -12,6 +12,7 @@
     "js/backup.js",
     "js/import.js",
     "js/install.js",
+    "js/own-accounts.js",
     "js/pyodide-bridge.js",
     "js/storage.js",
     "js/sw-register.js",

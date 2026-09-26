@@ -194,6 +194,10 @@ carries structured fields (not just a message string):
 **R-1.24** No failure path may be silent. Anything that is not fatal MUST appear in
 `AdapterResult.warnings` (adapters) or `PipelineResult.warnings` (pipeline) and MUST be
 surfaced by the CLI before any report figure is printed (CLAUDE.md rule 15).
+A warning MAY carry the id of the rule that raised it (`Warning.rule`), so a consumer can
+present that rule's warnings elsewhere: R-3.6 warnings carry `"R-3.6"`, and the app shows those
+accounts as ownership candidates (R-3.8) instead of in its warning list. The CLI and the
+manifest keep every warning.
 
 ---
 
@@ -306,6 +310,9 @@ retained solely as input to the future foreign-tax-credit computation.)*
 
 **R-2.8** Fields: `institution`, `iban_or_account` (`str | None`, normalized per R-1.12),
 `holder_name` (`str`, verbatim), `declared_in_file` (`str`), `as_of_date` (`date`).
+A declaration comes from a statement for that account, or from the user's own-accounts
+confirmation file (R-3.8), in which case `institution == "user_confirmed"`,
+`declared_in_file` names that file and `as_of_date` is the decision date.
 
 **R-2.9** `iban_or_account` MAY be `None` when the source states no IBAN for the account it
 describes (see R-6.16).
@@ -337,14 +344,17 @@ out and back in). A zero on a cash-side row, or on a row that moves no shares, s
 ## 3. Own accounts and internal/external classification
 
 **R-3.1** `owned_accounts` for a run is the union of every `AccountDeclaration` produced by
-every adapter over every file in that run. There is no hand-maintained registry
-(`docs/technical-decisions.md` §4).
+every adapter over every file in that run — statements and the R-3.8 confirmation file alike
+(`docs/technical-decisions.md` §5, as amended).
 
 **R-3.2** Classification runs as a **second pass**, after all files are parsed, because a
 file's rows may only be classifiable against a declaration found in a different file.
 
-**R-3.3** If two declarations share a normalized `iban_or_account` but differ in normalized
-`holder_name` (R-1.13), raise `AccountConflictError`.
+**R-3.3** If two declarations share a normalized `iban_or_account` but their `holder_name`s
+are not the same name under R-1.13 (`names_match`: word order, case and vowel accents
+ignored), raise `AccountConflictError`. *(fixed 2026-09-26: this compared order-sensitive
+`normalize_name` before, so a bank writing "SURNAMES GIVEN" and a confirmation writing "GIVEN
+SURNAMES" for the same account raised a false conflict — inconsistent with R-1.13 matching.)*
 
 **R-3.4** For every entry whose adapter-assigned `movement_type` is transfer-shaped
 (`EXTERNAL_DEPOSIT` / `EXTERNAL_WITHDRAWAL` — the adapters' pre-classification default),
@@ -369,7 +379,8 @@ which account statement is missing, without requiring a second lookup.)* Rows sh
 counterparty IBAN (normalized) collapse into ONE warning per account, in first-seen order,
 listing every affected row (`file:row,row,...`) and the count -- one missing statement is one
 thing to act on, not N. *(project owner's decision, 2026-09-25: 28 per-row warnings for 6
-accounts were noise.)*
+accounts were noise.)* Only accounts still **pending** a decision in the R-3.8 file warn;
+accounts decided there are listed as ownership candidates instead (R-3.8).
 *(rationale: classification depends on which files are present in the run. If the user has
 not yet supplied a statement for one of their own accounts, transfers to it look external
 today and become internal once that statement arrives — silently changing published savings
@@ -379,6 +390,38 @@ instead of retroactive.)*
 **R-3.7** The pipeline output MUST record the exact `owned_accounts` set used for a run
 (institution, IBAN, holder, source file), so a later change in classification is explainable
 by a change in inputs rather than appearing as an unexplained restatement.
+
+**R-3.8 (own-accounts confirmation file)** An input file
+`{"format": "fina-own-accounts", "version": 1, "accounts": [{"iban", "holder_name", "owned",
+"decided_on"}]}` records the user's decision on accounts under their name for which no statement
+is supplied (adapter `own_accounts_json`, selected by shape like any other, R-11.2). Each
+`owned: true` yields an `AccountDeclaration` (R-2.8); each `owned: false` yields a normalized
+IBAN in `AdapterResult.not_owned` — still external, no longer warned (R-3.6). Malformed content,
+a wrong `version`, or the same IBAN decided twice raises `ParseError` (row = 1-based position
+in `accounts`; 0 for the document itself). The run MUST output one **ownership candidate** per
+counterparty IBAN of a transfer-shaped entry that no statement in the run declares and that
+either matches an owned holder by name (R-1.13) or is decided in this file: IBAN, holder names
+as written, every `file:row`, total in, total out, first/last date, status
+(`pending`/`owned`/`not_owned`), estimated balance and unseen income (R-3.9); first-seen order.
+*(rationale: the owner asked to confirm accounts in the app instead of reading warnings. The
+decision is itself a document the run reads, so ownership stays traceable to an input.)*
+
+**R-3.9 (estimated own accounts)** For every internal transfer whose counterparty is an
+account confirmed in R-3.8 **and declared by no statement in the run**, the pipeline appends
+to the ledger the transfer's other leg: `institution == "own_unverified"`, `account` = the
+normalized IBAN, the opposite `INTERNAL_TRANSFER_*` type, negated `amount_eur`/`cash_effect_eur`,
+no fee/tax/declared balance, `status == "estimated"`, `entry_id = "mirror:" + id`, and the real
+row's `source_file`/`source_row`. Walking each such account's legs in R-1.22 order, whenever
+its estimated balance would drop below zero, an `EXTERNAL_DEPOSIT` for exactly the shortfall is
+booked on it first (`is_external_flow=True`, no counterparty, `status == "estimated"`,
+`entry_id = "unseen:" + id`, same source row): income that must have reached it from outside.
+*(rationale: moving money between own accounts must change neither net worth nor savings —
+CLAUDE.md rule 13 — so the account's side is booked. A bank balance cannot be negative, so the
+shortfall is modelled as unseen outside income at the latest date it can have arrived: on the
+owner's real data a plain sum gave −139,770 € for accounts that clearly hold money; the zero
+floor gives balances that match reality and leaves the gap unchanged, since the income counts
+in savings and net worth alike. Every estimated figure keeps its source row, and supplying the
+account's statement replaces the whole estimate — rule 11.)*
 
 ---
 
@@ -766,6 +809,10 @@ data; it MUST NOT be silently presented as a full month.
 **R-9.11** All Section 1 outputs are `Decimal`; rounding for display happens only per R-1.5
 at render time.
 
+**R-9.13** Each period reports `estimated_net_worth`: the part of `real_net_worth` held on
+`own_unverified` accounts (R-3.9), computed with the same per-account balance rule. It is
+shown next to the total, never hidden inside it (CLAUDE.md rule 11).
+
 **R-9.12 (D2)** The cross-check against the per-asset view, to be implemented when the FIFO
 engine exists:
 ```
@@ -873,8 +920,8 @@ exit code; no partial report is written. *(rationale: a report that exists but i
 worse than no report.)*
 
 **R-11.5** The run writes a machine-readable run manifest: input files with their SHA-256,
-the `owned_accounts` set (R-3.7), every warning, the tool version, and the resulting Section
-1 series. Two runs over identical inputs MUST produce identical manifests (R-1.20).
+the `owned_accounts` set (R-3.7), every warning, the ownership candidates (R-3.8), the tool
+version, and the resulting Section 1 series (including `estimated_net_worth`, R-9.13). Two runs over identical inputs MUST produce identical manifests (R-1.20).
 
 ---
 

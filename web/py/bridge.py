@@ -37,6 +37,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from fina.classification import OwnershipCandidate
 from fina.errors import FinaError
 from fina.money import round_half_up
 from fina.pipeline import run_pipeline, sniff_adapter_name
@@ -166,13 +167,16 @@ def run(active_files: Any) -> dict[str, Any]:
 
         {
             "ok": True,
-            "warnings": [<str>, ...],
+            "warnings": [<str>, ...],  # every warning except R-3.6 ones (see candidates)
+            "candidates": [<dict>, ...],  # R-3.8 ownership candidates, see _candidate_json
             "summary": {  # None if `result.series` is empty, exactly as `_build` prints
                           # nothing in that case
                 "completeness": <str>,
                 "as_of": <str, ISO date>,
                 "is_partial": <bool>,
                 "real_net_worth": <str, rounded>,
+                "estimated": <str, rounded> | None,  # part of real_net_worth held in
+                    # confirmed accounts with no statement (R-9.13); None when there is none
                 "savings_only": <str, rounded>,
                 "gap": <str, rounded>,
             } | None,
@@ -187,6 +191,7 @@ def run(active_files: Any) -> dict[str, Any]:
         {
             "ok": False,
             "warnings": [],
+            "candidates": [],
             "summary": None,
             "manifest_json": None,
             "chart_html": None,
@@ -210,6 +215,7 @@ def run(active_files: Any) -> dict[str, Any]:
         return {
             "ok": False,
             "warnings": [],
+            "candidates": [],
             "summary": None,
             "manifest_json": None,
             "chart_html": None,
@@ -228,17 +234,41 @@ def run(active_files: Any) -> dict[str, Any]:
             "as_of": latest.as_of.isoformat(),
             "is_partial": latest.is_partial,
             "real_net_worth": str(round_half_up(latest.real_net_worth)),
+            "estimated": (
+                str(round_half_up(latest.estimated_net_worth))
+                if latest.estimated_net_worth
+                else None
+            ),
             "savings_only": str(round_half_up(latest.savings_only)),
             "gap": str(round_half_up(latest.gap)),
         }
 
     return {
         "ok": True,
-        "warnings": [w.message for w in result.warnings],
+        # R-1.24: R-3.6 warnings are shown as ownership candidates instead (see `candidates`).
+        "warnings": [w.message for w in result.warnings if w.rule != "R-3.6"],
+        "candidates": [_candidate_json(c) for c in result.ownership_candidates],
         "summary": summary,
         "manifest_json": manifest_json,
         "chart_html": chart_html,
         "error": None,
+    }
+
+
+def _candidate_json(candidate: OwnershipCandidate) -> dict[str, Any]:
+    """R-3.8: one account in the user's name with no statement in the run, for the app's
+    "Accounts in your name" list. Figures are rounded display strings, never floats."""
+    return {
+        "iban": candidate.iban,
+        "holder_names": list(candidate.holder_names),
+        "status": candidate.status,
+        "transfers": len(candidate.rows),
+        "total_in": str(round_half_up(candidate.total_in)),
+        "total_out": str(round_half_up(candidate.total_out)),
+        "first_date": candidate.first_date.isoformat(),
+        "last_date": candidate.last_date.isoformat(),
+        "estimated_balance": str(round_half_up(candidate.estimated_balance)),
+        "unseen_income": str(round_half_up(candidate.unseen_income)),
     }
 
 

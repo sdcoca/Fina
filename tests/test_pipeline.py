@@ -173,7 +173,8 @@ def test_t502_unrecognized_shape_raises_listing_adapters_tried(tmp_path: Path) -
     assert err.column == "<file shape>"
     assert err.raw_value == "<unrecognized>"
     assert err.expected == (
-        "a shape matching one of the known adapters: trade_republic_broker_csv, bank_es_xlsx"
+        "a shape matching one of the known adapters: "
+        "trade_republic_broker_csv, bank_es_xlsx, own_accounts_json"
     )
 
 
@@ -226,6 +227,8 @@ def test_t507_manifest_contains_every_required_field(tmp_path: Path) -> None:
     for warning in manifest["warnings"]:
         assert set(warning) == {"message", "source_file", "source_row"}
 
+    assert manifest["ownership_candidates"] == []
+
     assert len(manifest["section1_series"]) == len(result.series)
     for period in manifest["section1_series"]:
         assert set(period) == {
@@ -233,6 +236,7 @@ def test_t507_manifest_contains_every_required_field(tmp_path: Path) -> None:
             "as_of",
             "is_partial",
             "real_net_worth",
+            "estimated_net_worth",
             "completeness",
             "savings_flow",
             "savings_only",
@@ -251,6 +255,7 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
         as_of=date(2027, 3, 31),
         is_partial=False,
         real_net_worth=Decimal("111.11"),
+        estimated_net_worth=Decimal("555.55"),
         completeness="cash_only",
         savings_flow=Decimal("444.44"),
         savings_only=Decimal("222.22"),
@@ -261,11 +266,13 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
         owned_accounts=(),
         entries=(),
         warnings=(),
+        ownership_candidates=(),
         series=(period,),
         tool_version="0.0.0-test",
     )
     (entry,) = manifest_dict(result)["section1_series"]
     assert entry["real_net_worth"] == "111.11"
+    assert entry["estimated_net_worth"] == "555.55"
     assert entry["savings_only"] == "222.22"
     assert entry["gap"] == "333.33"
     assert entry["savings_flow"] == "444.44"

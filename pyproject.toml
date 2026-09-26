@@ -100,6 +100,7 @@ pytest_add_cli_args_test_selection = [
     "--ignore=tests/test_pwa_service_worker.py",
     "--ignore=tests/test_pwa_backup.py",
     "--ignore=tests/test_pwa_subpath_deployment.py",
+    "--ignore=tests/test_pwa_own_accounts.py",
     "--ignore=tests/test_pyodide_bridge.py",
     "--ignore=tests/test_pyodide_vendor.py",
     # Tests the .claude/hooks Stop hook, which mutmut's mutants/ tree does not mirror.

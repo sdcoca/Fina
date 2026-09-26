@@ -20,9 +20,20 @@
 // WP-17: wires in `backup.js`'s export/restore actions (storage-eviction mitigation). A restore
 // that actually adds files follows the exact same write-then-refresh-then-run sequencing
 // `handleFiles` below already uses for a fresh pick -- see `handleRestore`.
+//
+// WP-19 (R-3.8): the "Accounts in your name" list. Each "Mine" / "Not mine" click rewrites the
+// own-accounts confirmation file (a stored file like any statement, via `storage.js`) and
+// re-runs -- the engine alone decides what that changes.
 
 import { exportBackupToFile, restoreFromFile } from "./backup.js";
 import { sniffAndPartition } from "./import.js";
+import {
+  mergeDecisions,
+  parseDecisions,
+  serializeDecisions,
+  todayIso,
+  withDecision,
+} from "./own-accounts.js";
 import { runBuild } from "./pyodide-bridge.js";
 import * as storage from "./storage.js";
 
@@ -39,6 +50,8 @@ const errorMessageEl = document.getElementById("error-message");
 const statusSection = document.getElementById("status-section");
 const warningsEl = document.getElementById("warnings");
 const summaryEl = document.getElementById("summary");
+const ownAccountsSection = document.getElementById("own-accounts-section");
+const ownAccountsListEl = document.getElementById("own-accounts-list");
 const chartSection = document.getElementById("chart-section");
 const chartFrame = document.getElementById("chart-frame");
 
@@ -212,9 +225,12 @@ function renderSummary(summary) {
     [asOfLabel, summary.as_of],
     ["Completeness", summary.completeness],
     ["Real net worth", `${summary.real_net_worth} EUR`],
-    ["Savings only", `${summary.savings_only} EUR`],
-    ["Gap", `${summary.gap} EUR`],
   ];
+  if (summary.estimated) {
+    // R-9.13: the part held in confirmed accounts with no statement -- an estimate.
+    rows.push(["of which estimated", `${summary.estimated} EUR`]);
+  }
+  rows.push(["Savings only", `${summary.savings_only} EUR`], ["Gap", `${summary.gap} EUR`]);
   const dl = document.createElement("dl");
   dl.className = "summary-list";
   for (const [label, value] of rows) {
@@ -226,6 +242,161 @@ function renderSummary(summary) {
     dl.appendChild(dd);
   }
   summaryEl.appendChild(dl);
+}
+
+// ---------------------------------------------------------------------------
+// WP-19 (R-3.8): "Accounts in your name". Every figure is a display string from bridge.py.
+// ---------------------------------------------------------------------------
+
+const _STATUS_ORDER = { pending: 0, owned: 1, not_owned: 2 };
+
+// Accounts whose "Change" was clicked: shown with both choices again until one is picked.
+const _reopened = new Set();
+
+function _groupIban(iban) {
+  return iban.replace(/(.{4})(?=.)/g, "$1 ");
+}
+
+function _textEl(tag, className, text) {
+  const el = document.createElement(tag);
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+function _choiceButton(label, className, candidate, owned) {
+  const button = _textEl("button", `own-account-button ${className}`, label);
+  button.type = "button";
+  button.addEventListener("click", () => {
+    for (const b of ownAccountsListEl.querySelectorAll("button")) {
+      b.disabled = true;
+    }
+    decideAccount(candidate, owned).catch((err) => {
+      showError(err && err.message ? err.message : String(err));
+    });
+  });
+  return button;
+}
+
+function _ownAccountItem(candidate) {
+  const li = document.createElement("li");
+  li.className = `own-account own-account--${candidate.status}`;
+  li.dataset.iban = candidate.iban;
+  const missingData = candidate.status === "owned" && candidate.unseen_income !== "0.00";
+  if (missingData) {
+    li.classList.add("own-account--missing-data");
+  }
+
+  const names = candidate.holder_names.length ? candidate.holder_names.join(" · ") : "—";
+  li.appendChild(_textEl("p", "own-account-name", names));
+  li.appendChild(_textEl("p", "own-account-iban", _groupIban(candidate.iban)));
+  const count = candidate.transfers === 1 ? "1 transfer" : `${candidate.transfers} transfers`;
+  const period =
+    candidate.first_date === candidate.last_date
+      ? candidate.first_date
+      : `${candidate.first_date} – ${candidate.last_date}`;
+  li.appendChild(
+    _textEl(
+      "p",
+      "own-account-meta",
+      `${count} · in ${candidate.total_in} EUR · out ${candidate.total_out} EUR · ${period}`
+    )
+  );
+
+  if (candidate.status === "owned") {
+    li.appendChild(
+      _textEl(
+        "p",
+        "own-account-balance",
+        `Estimated balance: ${candidate.estimated_balance} EUR (importing its statement ` +
+          "replaces the estimate)"
+      )
+    );
+  }
+  if (missingData) {
+    li.appendChild(
+      _textEl(
+        "p",
+        "own-account-missing",
+        `Missing data: at least ${candidate.unseen_income} EUR reached this account from ` +
+          "outside. Import its statement."
+      )
+    );
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "own-account-actions";
+  if (candidate.status === "pending" || _reopened.has(candidate.iban)) {
+    actions.appendChild(_choiceButton("Mine", "own-account-button--mine", candidate, true));
+    actions.appendChild(
+      _choiceButton("Not mine", "own-account-button--not-mine", candidate, false)
+    );
+  } else {
+    const label = candidate.status === "owned" ? "Marked as yours" : "Marked as not yours";
+    actions.appendChild(_textEl("span", "own-account-status", label));
+    const change = _textEl("button", "own-account-button own-account-button--change", "Change");
+    change.type = "button";
+    change.addEventListener("click", () => {
+      _reopened.add(candidate.iban);
+      li.replaceWith(_ownAccountItem(candidate));
+    });
+    actions.appendChild(change);
+  }
+  li.appendChild(actions);
+  return li;
+}
+
+/**
+ * Accounts that need a decision first, then the decided ones -- each group in the engine's
+ * own first-seen order (R-3.8).
+ */
+function renderOwnAccounts(candidates) {
+  ownAccountsListEl.replaceChildren();
+  _reopened.clear();
+  if (!candidates || candidates.length === 0) {
+    ownAccountsSection.hidden = true;
+    return;
+  }
+  ownAccountsSection.hidden = false;
+  const ordered = [...candidates].sort(
+    (a, b) => _STATUS_ORDER[a.status] - _STATUS_ORDER[b.status]
+  );
+  for (const candidate of ordered) {
+    ownAccountsListEl.appendChild(_ownAccountItem(candidate));
+  }
+}
+
+/** One confirmation file out of however many are stored, as a list of decisions. */
+async function _currentDecisions() {
+  const files = await storage.getOwnAccountsFiles();
+  return mergeDecisions(files.map((f) => parseDecisions(f.bytes)));
+}
+
+/** Records the user's decision on one account, then recomputes over the active set. */
+async function decideAccount(candidate, owned) {
+  const decisions = await _currentDecisions();
+  const previous = decisions.find((d) => d.iban === candidate.iban);
+  const holderName = candidate.holder_names[0] ?? (previous && previous.holder_name);
+  const updated = withDecision(decisions, {
+    iban: candidate.iban,
+    holder_name: holderName,
+    owned,
+    decided_on: todayIso(),
+  });
+  await storage.replaceOwnAccountsFile(serializeDecisions(updated));
+  await refreshStoredFilesChecklist();
+  await runOverActiveSet();
+}
+
+/**
+ * After a backup restore: if it brought in a second confirmation file, merge both into one
+ * (latest decision per account wins) so a run never reads two versions.
+ */
+async function consolidateOwnAccounts() {
+  const files = await storage.getOwnAccountsFiles();
+  if (files.length > 1) {
+    await storage.replaceOwnAccountsFile(serializeDecisions(await _currentDecisions()));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +510,7 @@ async function displayCachedResultIfFresh(files) {
   renderWarnings(cache.warnings);
   renderSummary(cache.summary);
   statusSection.hidden = false;
+  renderOwnAccounts(cache.candidates);
   showChart(cache.chartHtml);
 }
 
@@ -352,6 +524,7 @@ async function runOverActiveSet() {
   hideError();
   clearChart();
   statusSection.hidden = true;
+  renderOwnAccounts([]);
 
   try {
     const activeRecords = await storage.getActiveFiles();
@@ -380,11 +553,13 @@ async function runOverActiveSet() {
       renderWarnings(result.warnings);
       renderSummary(result.summary);
       statusSection.hidden = false;
+      renderOwnAccounts(result.candidates);
       showChart(result.chart_html);
 
       await storage.setRunCache({
         activeIds: activeRecords.map((r) => r.id),
         warnings: result.warnings,
+        candidates: result.candidates,
         summary: result.summary,
         manifestJson: result.manifest_json,
         chartHtml: result.chart_html,
@@ -545,6 +720,7 @@ async function handleRestore(file) {
   const { restored, rejected } = await restoreFromFile(file);
 
   if (restored.length > 0) {
+    await consolidateOwnAccounts();
     await refreshStoredFilesChecklist();
   }
 

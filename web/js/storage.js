@@ -263,6 +263,68 @@ export async function getAllFilesWithBytes() {
 }
 
 // ---------------------------------------------------------------------------
+// WP-19 (R-3.8): the own-accounts confirmation file. Stored as an ordinary `rawFiles` record
+// (so it is listed, toggled, backed up and restored like any statement), but at most one is
+// kept: every decision rewrites it, and each rewrite has new content -- hence a new content-hash
+// id -- so the previous version is deleted in the same transaction.
+// ---------------------------------------------------------------------------
+
+/** `recognizedAs` of the confirmation file: its adapter's name in `fina.pipeline`. */
+export const OWN_ACCOUNTS_ADAPTER = "own_accounts_json";
+
+/** The name the app gives the confirmation file it writes. */
+export const OWN_ACCOUNTS_FILENAME = "cuentas-propias.json";
+
+/**
+ * Every stored confirmation file, with bytes -- normally one; more only after a backup restore
+ * brought in another version (see `app.js`'s `consolidateOwnAccounts`).
+ *
+ * @returns {Promise<Array<{id: string, active: boolean, bytes: Uint8Array}>>}
+ */
+export async function getOwnAccountsFiles() {
+  const all = await getAllFilesWithBytes();
+  return all
+    .filter((f) => f.recognizedAs === OWN_ACCOUNTS_ADAPTER)
+    .map(({ id, active, bytes }) => ({ id, active, bytes }));
+}
+
+/**
+ * Makes `bytes` the one stored, active confirmation file: every other `rawFiles` record
+ * recognized as one is deleted in the same transaction, so a run never sees two versions.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {Promise<string>} the new record's `id`.
+ */
+export async function replaceOwnAccountsFile(bytes) {
+  const id = await sha256Hex(bytes);
+  const db = await _openDb();
+  const tx = db.transaction([STORE_RAW_FILES], "readwrite");
+  const store = tx.objectStore(STORE_RAW_FILES);
+  const all = await _promisifyRequest(store.getAll());
+  for (const record of all) {
+    if (record.recognizedAs === OWN_ACCOUNTS_ADAPTER && record.id !== id) {
+      store.delete(record.id);
+    }
+  }
+  const existing = all.find((record) => record.id === id);
+  store.put(
+    existing
+      ? { ...existing, active: true }
+      : {
+          id,
+          filename: OWN_ACCOUNTS_FILENAME,
+          bytes: new Blob([bytes]),
+          recognizedAs: OWN_ACCOUNTS_ADAPTER,
+          active: true,
+          importedAt: new Date().toISOString(),
+          size: bytes.byteLength,
+        }
+  );
+  await _txDone(tx);
+  return id;
+}
+
+// ---------------------------------------------------------------------------
 // runCache -- rebuildable cache only (§2.2.2/§2.4.2). Never decides success/failure itself;
 // the caller (app.js) only calls setRunCache() after it has already confirmed bridge.run()
 // succeeded, and must simply not call setRunCache()/clearRunCache() at all on a failed run so
@@ -292,8 +354,8 @@ export async function getRunCache() {
  * way to check that itself, matching WP-13's established pattern of `app.js` owning
  * orchestration, not `storage.js`/`pyodide-bridge.js`.
  *
- * @param {object} record e.g. `{ activeIds: string[], warnings, summary, manifestJson,
- *   chartHtml, computedAt }`.
+ * @param {object} record e.g. `{ activeIds: string[], warnings, candidates, summary,
+ *   manifestJson, chartHtml, computedAt }`.
  * @returns {Promise<void>}
  */
 export async function setRunCache(record) {

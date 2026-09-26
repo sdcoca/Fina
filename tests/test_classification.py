@@ -331,6 +331,7 @@ def test_t308_external_row_matching_owned_holder_name_warns_but_stays_external()
     )
     assert warning.source_file == entry.source_file
     assert warning.source_row == entry.source_row
+    assert warning.rule == "R-3.6"
 
 
 def test_t308_direction_wording_deposit_vs_withdrawal() -> None:

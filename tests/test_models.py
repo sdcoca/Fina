@@ -569,3 +569,7 @@ def test_warning_dataclass_is_frozen() -> None:
     w = Warning(message="m", source_file="f", source_row=1)
     with pytest.raises(dataclasses.FrozenInstanceError):
         w.message = "other"  # type: ignore[misc]
+
+
+def test_warning_names_no_rule_unless_told() -> None:
+    assert Warning(message="m").rule is None

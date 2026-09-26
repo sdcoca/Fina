@@ -39,6 +39,11 @@ def _build(input_dir: Path, out_dir: Path) -> int:
             f"real_net_worth ({latest.completeness}) as of {latest.as_of.isoformat()}"
             f"{as_of_note}: {round_half_up(latest.real_net_worth)} EUR"
         )
+        if latest.estimated_net_worth != 0:
+            print(
+                "  of which estimated (own accounts without a statement): "
+                f"{round_half_up(latest.estimated_net_worth)} EUR"
+            )
         print(f"savings_only: {round_half_up(latest.savings_only)} EUR")
         print(f"gap: {round_half_up(latest.gap)} EUR")
 

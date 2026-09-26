@@ -102,6 +102,19 @@
     <div id="summary" class="summary" hidden></div>
   </section>
 
+  <!-- WP-19 (R-3.8): accounts in the user's name with no statement imported. Each "Mine" /
+       "Not mine" rewrites the stored confirmation file and re-runs (web/js/app.js). -->
+  <section id="own-accounts-section" class="own-accounts-section"
+           aria-labelledby="own-accounts-heading" hidden>
+    <h2 id="own-accounts-heading">Accounts in your name</h2>
+    <p class="own-accounts-description">
+      Transfers to or from these accounts carry your name, but no statement for them has been
+      imported. If one is yours, money moved to or from it stops counting as savings or
+      spending, and its balance is estimated until you import its statement.
+    </p>
+    <ul id="own-accounts-list" class="own-accounts-list"></ul>
+  </section>
+
   <!-- PWA-5.2(a): the chart is embedded via a sandboxed <iframe srcdoc="...">, never
        innerHTML -- innerHTML would collide with the chart document's own :root CSS custom
        properties and would silently drop its <script> (the tooltip stops working). -->

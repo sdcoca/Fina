@@ -271,6 +271,13 @@ contain); code, comments, test names and docs are English.
 | T-309 | Manifest records the exact `owned_accounts` used | R-3.7 |
 | T-310 | Classification is idempotent (running the pass twice changes nothing) | R-1.20 |
 | T-311 | Non-transfer movement types are left with `is_external_flow=None` | R-2.3 |
+| T-312 | Same IBAN, same holder in another word order → no conflict; a genuinely different holder still conflicts | R-3.3 |
+| T-313 | Confirmation file: sniff by format marker only; `owned` → `user_confirmed` declaration; `not_owned` normalized; each malformed field / wrong version / duplicate IBAN → `ParseError` with its position | R-3.8 |
+| T-314 | Candidates: one per IBAN, every row, totals in/out, first/last date, name spellings, first-seen order, status pending/owned/not_owned; statement-backed IBANs, IBAN-less rows, other names and non-transfer types excluded | R-3.8 |
+| T-315 | `not_owned` stays external and is no longer warned; `owned` becomes internal by IBAN with no warning | R-3.6, R-3.8 |
+| T-316 | Mirror leg: opposite type, negated amounts, `own_unverified` account by IBAN, `estimated`, source row kept, no fee/tax; none without a confirmation or once a statement declares the IBAN | R-3.9 |
+| T-317 | Zero floor: unseen-income `EXTERNAL_DEPOSIT` for exactly the shortfall, in R-1.22 order regardless of input order; none while the balance stays ≥ 0 | R-3.9 |
+| T-318 | End to end: confirming an account leaves every tracked balance and the gap unchanged month by month, estimated ≥ 0; rejecting it changes no figure | R-3.9, R-9.9, R-9.13 |
 
 ### 7.2 Reconciliation (§8)
 
@@ -318,6 +325,7 @@ contain); code, comments, test names and docs are English.
 | T-415 | Every emitted figure is `Decimal` | R-9.11, R-1.1 |
 | T-416 | Empty ledger → empty series, no exception | R-1.18 |
 | T-417 | Single-entry ledger → one period, `gap == 0` at `t0` | R-9.7 |
+| T-418 | `estimated_net_worth` sums only `own_unverified` accounts and is reported per period, in the manifest and (when non-zero) by the CLI | R-9.13, R-11.5 |
 
 ## 8. Integration, property-based and system tests
 
@@ -335,6 +343,9 @@ contain); code, comments, test names and docs are English.
 | T-507 | Manifest contains input SHA-256s, owned accounts, warnings, version, series | R-11.5 |
 | T-508 | Two runs → byte-identical manifests (also G-7) | R-1.20 |
 | T-509 | `sniff_adapter_name` recognizes each fixture and returns `None` (never raising) on an unrecognized file; a differential check that it agrees with `_select_adapter` on both the recognized and unrecognized cases | WP-10 |
+| T-520 | App bridge: `candidates` carry every R-3.8 field as rounded strings, `summary.estimated` is the rounded R-9.13 figure (None when zero), R-3.6 warnings are left out of `warnings` (`Warning.rule`); manifest and chart stay byte-identical to the CLI with a confirmation file | R-1.24, R-3.8, R-9.13 |
+| T-521 | App, 390px light and dark: a pending account is listed (not warned); "Mine" writes one confirmation file, re-runs and shows the estimate, the missing-data note and the native figures; a reload shows it from the cache; "Change" → "Not mine" rewrites the same single file; no horizontal scroll | R-3.8, R-3.9 |
+| T-522 | Confirmation-file helpers: merge keeps the latest decision per IBAN (restore consolidation), a decision replaces in place, round trip, unreadable file → no decisions | R-3.8 |
 
 ### 8.2 Property-based (Hypothesis)
 
@@ -411,7 +422,7 @@ packages land; a work package is not done until its rules appear here.
 | R-1.21 | T-060, T-061, T-062 |
 | R-1.22 | T-220, T-352, T-358, T-359, T-601 |
 | R-1.23 | T-071, T-351 |
-| R-1.24 | T-504 |
+| R-1.24 | T-504, T-520 |
 | R-2.1 | T-050 |
 | R-2.2 | T-051, T-113 |
 | R-2.3 | T-058, T-311, T-404 |
@@ -420,7 +431,7 @@ packages land; a work package is not done until its rules appear here.
 | R-2.5a | T-058, T-106a |
 | R-2.6 | T-052..T-058 |
 | R-2.7 | T-055, T-056, T-103 |
-| R-2.8 | T-221 |
+| R-2.8 | T-221, T-313 |
 | R-2.9 | T-135 |
 | R-2.10 | T-063, T-064 |
 | R-2.11 | T-065, T-066 |
@@ -432,11 +443,13 @@ packages land; a work package is not done until its rules appear here.
 | R-2.17 | T-057, T-070 |
 | R-3.1 | T-304 |
 | R-3.2 | T-304 |
-| R-3.3 | T-307 |
+| R-3.3 | T-307, T-312 |
 | R-3.4 | T-300..T-303 |
 | R-3.5 | T-300, T-305, T-306 |
-| R-3.6 | T-308, T-308a |
+| R-3.6 | T-308, T-308a, T-315 |
 | R-3.7 | T-309, T-507 |
+| R-3.8 | T-313, T-314, T-315, T-520, T-521, T-522 |
+| R-3.9 | T-316, T-317, T-318, T-521 |
 | R-4.1 | T-103 (FX metadata stored, not applied) |
 | R-4.2 | (deferred — no test until an converting adapter exists) |
 | R-5.1 | T-100, T-200 |
@@ -497,6 +510,7 @@ packages land; a work package is not done until its rules appear here.
 | R-9.10 | T-413 |
 | R-9.11 | T-415 |
 | R-9.12 | (deferred D2) |
+| R-9.13 | T-318, T-418, T-520 |
 | R-10.1 | T-705 |
 | R-10.2 | T-702, T-703, T-706, T-707, T-710 |
 | R-10.2a | T-706, T-708, T-710 |
@@ -511,5 +525,5 @@ packages land; a work package is not done until its rules appear here.
 | R-11.2 | T-501, T-502 |
 | R-11.3 | T-504 |
 | R-11.4 | T-505, T-506 |
-| R-11.5 | T-507, T-508 |
+| R-11.5 | T-507, T-508, T-418 |
 | R-12.1 | T-100, T-350, T-400, T-401, T-403, T-407, T-408 |

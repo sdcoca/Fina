@@ -131,11 +131,25 @@ class Warning:
     message: str
     source_file: str | None = None
     source_row: int | None = None
+    #: The spec rule that raised it, when a consumer presents that rule's warnings elsewhere
+    #: (R-1.24): the app lists R-3.6 accounts as ownership candidates instead (R-3.8).
+    rule: str | None = None
+
+
+#: R-3.8: `AccountDeclaration.institution` of an account the user confirmed as their own in the
+#: own-accounts confirmation file, instead of proving it with a statement for that account.
+USER_CONFIRMED_INSTITUTION = "user_confirmed"
+
+#: R-3.9: `LedgerEntry.institution` of the estimated mirror rows standing in for an account the
+#: user confirmed as their own but supplied no statement for.
+OWN_UNVERIFIED_INSTITUTION = "own_unverified"
 
 
 @dataclass(frozen=True)
 class AccountDeclaration:
-    """An account the user has proven ownership of by supplying a statement for it (R-2.8)."""
+    """An account the user owns (R-2.8): proven by supplying a statement for it, or confirmed
+    explicitly in the own-accounts confirmation file (R-3.8, institution
+    ``USER_CONFIRMED_INSTITUTION``)."""
 
     institution: str
     iban_or_account: str | None
@@ -233,6 +247,9 @@ class AdapterResult:
     entries: tuple[LedgerEntry, ...]
     accounts: tuple[AccountDeclaration, ...]
     warnings: tuple[Warning, ...]
+    #: R-3.8: normalized IBANs the user declared NOT their own (only the own-accounts
+    #: confirmation file ever sets this).
+    not_owned: tuple[str, ...] = ()
 
 
 def check_duplicate_transaction_ids(id_rows: Sequence[tuple[str, int]]) -> None:

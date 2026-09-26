@@ -38,6 +38,7 @@ def test_to_chart_rows_exact_display_values_for_all_four_fields() -> None:
         as_of=date(2027, 3, 31),
         is_partial=False,
         real_net_worth=Decimal("111.111"),
+        estimated_net_worth=Decimal("0"),
         completeness="cash_only",
         savings_flow=Decimal("444.444"),
         savings_only=Decimal("222.222"),
