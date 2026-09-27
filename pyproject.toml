@@ -98,6 +98,7 @@ pytest_add_cli_args_test_selection = [
     "--ignore=tests/test_pwa_manifest.py",
     "--ignore=tests/test_pwa_storage.py",
     "--ignore=tests/test_pwa_banners.py",
+    "--ignore=tests/test_pwa_price_check.py",
     "--ignore=tests/test_pwa_service_worker.py",
     "--ignore=tests/test_pwa_backup.py",
     "--ignore=tests/test_pwa_subpath_deployment.py",

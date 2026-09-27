@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<title>Price check</title>
+<link rel="stylesheet" href="./css/shell.css">
+<style>
+  /* A diagnostic page, not part of the app: it answers "can Fina, from its own web address,
+   * read prices from this provider?" (owner's decision 2026-09-27: test option B). */
+  .pc-card {
+    background: var(--shell-surface);
+    border: 1px solid var(--shell-border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .pc-card h2 { margin: 0 0 6px; font-size: 17px; }
+  .pc-card p { margin: 0 0 8px; font-size: 13.5px; color: var(--shell-ink-2); }
+  .pc-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13.5px; }
+  .pc-field input,
+  .pc-field select {
+    font-size: 15px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--shell-border);
+    background: var(--shell-page);
+    color: var(--shell-ink);
+    min-width: 0;
+  }
+  .pc-button {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--shell-accent);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .pc-button--quiet { color: var(--shell-accent); background: transparent; border: 1px solid var(--shell-accent); }
+  .pc-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pc-results { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .pc-results li { font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--shell-page); word-break: break-word; }
+  .pc-ok { border-left: 4px solid #2e9e5b; }
+  .pc-bad { border-left: 4px solid var(--shell-danger); }
+  .pc-raw { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--shell-muted); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <section class="pc-card">
+    <h2>Price check</h2>
+    <p>
+      Tests whether this web address can read prices from each provider. Everything runs on
+      this phone: keys and symbols you type are sent only to the provider being tested, and
+      nothing is stored.
+    </p>
+  </section>
+
+  <section class="pc-card">
+    <h2>1. Which providers answer this page?</h2>
+    <p>No key needed: an error such as "invalid key" still counts as an answer.</p>
+    <button id="probe-button" class="pc-button" type="button">Run</button>
+    <ul id="probe-results" class="pc-results"></ul>
+  </section>
+
+  <section class="pc-card">
+    <h2>2. Try one of your holdings</h2>
+    <p>
+      Use the provider's free key. Search by ISIN first; if nothing is found, try the name.
+      Then copy the symbol it returns into the same box and get the price history.
+    </p>
+    <label class="pc-field">Provider
+      <select id="provider"></select>
+    </label>
+    <label class="pc-field">Free API key
+      <input id="api-key" type="password" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="pc-field">ISIN, name or symbol
+      <input id="query" type="text" autocomplete="off" spellcheck="false" autocapitalize="characters">
+    </label>
+    <div class="pc-buttons">
+      <button id="search-button" class="pc-button" type="button">Search</button>
+      <button id="history-button" class="pc-button" type="button">Price history</button>
+    </div>
+    <ul id="key-results" class="pc-results"></ul>
+  </section>
+
+  <section class="pc-card">
+    <h2>3. Send me the results</h2>
+    <p>Copies everything above as text, with your key removed.</p>
+    <button id="copy-button" class="pc-button pc-button--quiet" type="button">Copy results</button>
+    <p id="copy-status" hidden></p>
+  </section>
+</main>
+<script type="module" src="./js/price-check.js"></script>
+</body>
+</html>
