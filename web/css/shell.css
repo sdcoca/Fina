@@ -483,9 +483,14 @@ h2 {
   flex: 1 1 auto;
 }
 
-.acc-summary::after,
-.group-summary::after {
+/* The expand/collapse arrow sits on the left, away from the header's Import button (owner's
+ * request, 2026-09-27); a fixed width keeps each heading's text aligned whichever way it
+ * points. */
+.acc-summary::before,
+.group-summary::before {
   content: "\203A";
+  flex: 0 0 12px;
+  text-align: center;
   font-size: 20px;
   line-height: 1;
   color: var(--shell-muted);
@@ -493,8 +498,8 @@ h2 {
   transition: transform 0.12s ease;
 }
 
-.accounts-section[open] > .acc-summary::after,
-.acc-group[open] > .group-summary::after {
+.accounts-section[open] > .acc-summary::before,
+.acc-group[open] > .group-summary::before {
   transform: rotate(90deg);
 }
 
