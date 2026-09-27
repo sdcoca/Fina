@@ -456,6 +456,41 @@ def test_transferencia_a_captures_the_counterparty_name(tmp_path: Path) -> None:
     assert entry.counterparty_name == "JUAN PEREZ GARCIA"
 
 
+@pytest.mark.parametrize(
+    ("concepto", "movement_type", "name"),
+    [
+        (
+            "TRANSFERENCIA A FAVOR DE JUAN PEREZ GARCIA CONCEPTO: Ahorro Marzo",
+            MovementType.EXTERNAL_WITHDRAWAL,
+            "JUAN PEREZ GARCIA",
+        ),
+        (
+            "TRANSFERENCIA INMEDIATA A FAVOR DE Juan Perez Garcia",
+            MovementType.EXTERNAL_WITHDRAWAL,
+            "Juan Perez Garcia",
+        ),
+        (
+            "TRANSFERENCIA DE JUAN PEREZ GARCIA CONCEPTO Devolucion",
+            MovementType.EXTERNAL_DEPOSIT,
+            "JUAN PEREZ GARCIA",
+        ),
+    ],
+)
+def test_transfer_names_leave_out_a_favor_de_and_a_comma_less_concepto(
+    tmp_path: Path, concepto: str, movement_type: MovementType, name: str
+) -> None:
+    """Owner's real export: "A FAVOR DE" was captured as part of the name, and a "CONCEPTO"
+    note without a comma was too -- so their own transfers never matched their name."""
+
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = concepto
+        ws["D9"] = "-1,00€" if movement_type is MovementType.EXTERNAL_WITHDRAWAL else "1,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="transfavor.xlsx")
+    entry = next(e for e in bank_xlsx.parse(path).entries if e.source_row == 9)
+    assert (entry.movement_type, entry.counterparty_name) == (movement_type, name)
+
+
 def test_unrecognized_concept_warning_carries_correct_source_file(tmp_path: Path) -> None:
     def mutate(ws: Worksheet) -> None:
         ws["C9"] = "ALGO TOTALMENTE DESCONOCIDO"

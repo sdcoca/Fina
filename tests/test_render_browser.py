@@ -60,10 +60,11 @@ def _sample_series() -> list[ChartRow]:
         month = (month - 1) % 12 + 1
         rows.append(
             ChartRow(
+                month=date(year, month, 1).strftime("%Y-%m"),
                 month_label=date(year, month, 1).strftime("%b %Y"),
                 as_of=date(year, month, 28).isoformat(),
                 is_partial=(i == len(values) - 1),
-                completeness="cash_only",
+                completeness="positions_at_cost",
                 real_net_worth_position=real,
                 savings_only_position=savings,
                 gap_position=real - savings,
@@ -71,6 +72,9 @@ def _sample_series() -> list[ChartRow]:
                 savings_only_display=f"{savings:.2f}",
                 gap_display=f"{real - savings:.2f}",
                 savings_flow_display="123.45",
+                positions_at_cost_display="500.00",
+                estimated_display="80.00",
+                opening_balances_display="0.00",
             )
         )
     return rows
@@ -97,10 +101,11 @@ def _worst_case_series() -> list[ChartRow]:
         month = (month - 1) % 12 + 1
         rows.append(
             ChartRow(
+                month=date(year, month, 1).strftime("%Y-%m"),
                 month_label=date(year, month, 1).strftime("%b %Y"),
                 as_of=date(year, month, 28).isoformat(),
                 is_partial=(i == len(values) - 1),
-                completeness="cash_only",
+                completeness="positions_at_cost",
                 real_net_worth_position=real,
                 savings_only_position=savings,
                 gap_position=real - savings,
@@ -108,6 +113,9 @@ def _worst_case_series() -> list[ChartRow]:
                 savings_only_display=f"{savings:.2f}",
                 gap_display=f"{real - savings:.2f}",
                 savings_flow_display="-999999999.99",
+                positions_at_cost_display="999999999.99",
+                estimated_display="999999999.99",
+                opening_balances_display="-999999999.99",
             )
         )
     return rows
@@ -357,7 +365,7 @@ def test_t710_no_text_overflows_its_container(
     tmp_path: Path, theme: str, tooltip_open: bool
 ) -> None:
     """G-9: every text-bearing element renders fully inside its intended container -- SVG text
-    (grid/axis/end-of-line labels) within the visible chart card (`.card`), tooltip text (month
+    (grid/axis/end-of-line labels) within the chart's own page (`body`: it now fills the phone's width edge to edge, WP-22a), tooltip text (month
     header, as-of line, every row's label/value, the gap row) within the tooltip's own box
     (`.tooltip`) -- at a 390px viewport, in both themes, whether the tooltip is open or closed.
     Uses `_worst_case_series` (large multi-digit euro figures, a genuine loss) deliberately
@@ -374,7 +382,7 @@ def test_t710_no_text_overflows_its_container(
             _click_month(page, count - 1, count)  # the largest-loss, partial month
             page.wait_for_timeout(20)
 
-        card_box = page.locator(".card").bounding_box()
+        card_box = page.locator("body").bounding_box()
         tooltip_box = page.locator("#s1-tooltip").bounding_box()
         assert card_box is not None
         items = page.evaluate(_TEXT_LEAF_BOXES_JS)
@@ -439,7 +447,7 @@ def test_t710_real_pipeline_output_has_no_overflow(tmp_path: Path) -> None:
         page.wait_for_timeout(20)
         assert "visible" in (page.locator("#s1-tooltip").get_attribute("class") or "")
 
-        card_box = page.locator(".card").bounding_box()
+        card_box = page.locator("body").bounding_box()
         tooltip_box = page.locator("#s1-tooltip").bounding_box()
         assert card_box is not None
         assert tooltip_box is not None

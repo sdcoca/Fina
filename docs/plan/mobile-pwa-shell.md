@@ -439,3 +439,25 @@ box-fitting rule, R-10.6) turns out to need more room than the fixed-height ifra
 more robust fix is the chart's own script `postMessage`-ing its real rendered height to the
 parent shell once loaded. **This needs a real mobile-width render check once it's built (CLAUDE.md
 rule 19) — not reasoned about only on paper here.**
+
+## 6. Page layout after WP-22 (owner's iterations, 2026-09-26/27)
+
+Supersedes the card order of WP-13..WP-19 (Import, Stored files, Backup, summary, chart,
+"Accounts in your name"). Verified at 390px in both themes before shipping (CLAUDE.md rule 19).
+
+1. **Header**: app name, and a settings icon (gear) on the right. Settings holds only the WP-17
+   backup (export/restore), in a panel opened over the page -- the owner never asked for a
+   backup and did not want it taking a whole card; it is kept because storage eviction is real
+   (§1.4b/§2.4.3).
+2. **Chart card** (WP-22a): the page's summary. Framed like every other card; its legend
+   carries the three headline figures, so there is no separate summary card.
+3. **Accounts card** (WP-22b), collapsible, with an **Import** button in its header (importing a
+   statement belongs with the accounts it declares; the file picker itself is hidden). Groups:
+   with a statement (each with its own files and their include checkboxes -- no separate
+   "Stored files" card), needs your decision, yours without a statement, not yours, other files
+   (not linked to an account yet). Every account can be renamed; names are stored in the
+   confirmation file (R-3.8, version 2) so they travel with the backup. Collapsed by default;
+   after a file is loaded, the section and the groups that need attention open by themselves;
+   a decided account's new group opens so the card stays in view; with nothing imported the
+   section is open, showing how to start.
+4. Page gutter 8px, card padding 12px: the owner found wider frames wasted a phone's width.

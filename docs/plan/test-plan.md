@@ -326,6 +326,8 @@ contain); code, comments, test names and docs are English.
 | T-416 | Empty ledger → empty series, no exception | R-1.18 |
 | T-417 | Single-entry ledger → one period, `gap == 0` at `t0` | R-9.7 |
 | T-418 | `estimated_net_worth` sums only `own_unverified` accounts and is reported per period, in the manifest and (when non-zero) by the CLI | R-9.13, R-11.5 |
+| T-419 | Positions at cost: FIFO (oldest lots first), exact remainder on a partial lot and exact release on full consumption, per asset, R-1.22 order and `as_of`, `TECHNICAL_ADJUSTMENT` ignored, a buy leaves net worth unchanged, an unmatched sale warns once and values nothing; fixture broker 21937.82 cash + 6538.246667 at cost | R-9.3, R-9.4, R-9.14 |
+| T-420 | Opening balances: fixture bank already held 1000.00 before its first row; baseline = first declared balance, every move up to it; a later account adds its opening to savings in its month (return stays 0); the first month never counts it twice; accounts without declared balances have none | R-9.8, R-9.15 |
 
 ## 8. Integration, property-based and system tests
 
@@ -511,6 +513,8 @@ packages land; a work package is not done until its rules appear here.
 | R-9.11 | T-415 |
 | R-9.12 | (deferred D2) |
 | R-9.13 | T-318, T-418, T-520 |
+| R-9.14 | T-419 |
+| R-9.15 | T-420 |
 | R-10.1 | T-705 |
 | R-10.2 | T-702, T-703, T-706, T-707, T-710 |
 | R-10.2a | T-706, T-708, T-710 |

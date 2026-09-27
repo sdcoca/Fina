@@ -1,5 +1,5 @@
 {
-  "version": "2e0ad90a71d22e61",
+  "version": "ef58024e390502e0",
   "finaVersion": "0.1.0",
   "files": [
     "css/shell.css",
@@ -8,6 +8,7 @@
     "icons/icon-512-maskable.png",
     "icons/icon-512.png",
     "index.html",
+    "js/accounts.js",
     "js/app.js",
     "js/backup.js",
     "js/import.js",

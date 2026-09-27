@@ -52,7 +52,7 @@ import hashlib
 import zipfile
 from pathlib import Path
 
-from playwright.sync_api import Page
+from playwright.sync_api import Download, Page
 
 from browser_support import launch_chromium
 from fina import cli
@@ -61,7 +61,9 @@ from test_pwa_shell import (
     BANK_XLSX,
     BROKER_CSV,
     FIXTURES_DIR,
+    _expected_legend,
     _expected_summary_for,
+    _open_accounts,
     _open_shell_page,
     _pick_files,
     _summary_dd_texts,
@@ -158,7 +160,8 @@ def _wipe_indexeddb_for_real(page: Page, origin: str) -> None:
 
 
 def test_export_wipe_restore_round_trip_is_byte_identical(
-    tmp_path: Path, shell_server: str  # noqa: F811 -- pytest fixture param, not a redefinition
+    tmp_path: Path,
+    shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
 ) -> None:
     bank_id = _sha256_hex(BANK_XLSX)
     broker_id = _sha256_hex(BROKER_CSV)
@@ -195,16 +198,11 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
             # --- 2. Toggle broker inactive -- a genuinely non-default state to round-trip. ---
             prev_seq = _run_seq(page)
             broker_checkbox = page.locator(f'li[data-file-id="{broker_id}"] .stored-file-checkbox')
+            _open_accounts(page)
             broker_checkbox.uncheck()
             _wait_for_next_run(page, prev_seq)
             assert page.locator("#error-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected_bank_only["as_of"],
-                expected_bank_only["completeness"],
-                f"{expected_bank_only['real_net_worth']} EUR",
-                f"{expected_bank_only['savings_only']} EUR",
-                f"{expected_bank_only['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected_bank_only)
 
             pre_wipe_cache = _get_run_cache(page)
             assert pre_wipe_cache is not None
@@ -219,10 +217,23 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
             # anchor.click() issued after that async work was silently ignored on a real mobile
             # browser, with no error and no download. The download event now fires on that
             # popup page, not the main `page`, so it must be awaited there.
+            # The listener is attached the moment the popup exists: the download can fire before
+            # `expect_page` hands the popup back, and a listener added after it would miss it.
+            downloads: list[Download] = []
+            context.on(
+                "page",
+                lambda popup_page: popup_page.on("download", lambda d: downloads.append(d)),
+            )
+            page.locator(".settings-toggle").click()  # backup lives behind the settings icon
             with context.expect_page() as popup_info:
                 page.locator("#export-backup-button").click()
             popup = popup_info.value
-            download = popup.wait_for_event("download", timeout=60_000)
+            for _ in range(600):
+                if downloads:
+                    break
+                popup.wait_for_timeout(100)
+            assert downloads, "no download within 60s"
+            download = downloads[0]
             backup_path = tmp_path / "captured_backup.zip"
             download.save_as(str(backup_path))
             assert backup_path.stat().st_size > 0
@@ -231,17 +242,18 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
 
             # --- 4. Wipe IndexedDB for real; reload; confirm a genuinely empty checklist. ---
             _wipe_indexeddb_for_real(page, shell_server)
-            assert page.locator("#stored-files-list li").count() == 0
-            assert not page.locator("#stored-files-empty").is_hidden()
+            assert page.locator("#accounts-groups .stored-file").count() == 0
+            assert not page.locator("#accounts-empty").is_hidden()
             assert _get_run_cache(page) is None
 
             # --- 5. Restore from the captured backup. ---
             prev_backup_seq = _backup_seq(page)
+            page.locator(".settings-toggle").click()  # as a user reaches the restore input
             page.locator("#restore-backup-input").set_input_files(str(backup_path))
             _wait_for_next_backup_action(page, prev_backup_seq)
 
             # --- 6. Both files reappear, correctly recognized, with active state preserved. ---
-            rows = page.locator("#stored-files-list li")
+            rows = page.locator("#accounts-groups .stored-file")
             assert rows.count() == 2
             restored_files = _list_raw_files(page)
             by_id = {f["id"]: f for f in restored_files}
@@ -261,13 +273,7 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
             # --- 7. The post-restore run (bank-only active set) is byte-identical to both the
             # pre-wipe cache and a fresh native build. ---
             assert page.locator("#error-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected_bank_only["as_of"],
-                expected_bank_only["completeness"],
-                f"{expected_bank_only['real_net_worth']} EUR",
-                f"{expected_bank_only['savings_only']} EUR",
-                f"{expected_bank_only['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected_bank_only)
             post_restore_cache = _get_run_cache(page)
             assert post_restore_cache is not None
             assert post_restore_cache["activeIds"] == [bank_id]
@@ -280,16 +286,11 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
             # to a fresh native build -- proof the broker file's own bytes (not only the bank
             # file's) survived the round trip intact, not merely its metadata. ---
             prev_seq = _run_seq(page)
+            _open_accounts(page)
             broker_checkbox.check()
             _wait_for_next_run(page, prev_seq)
             assert page.locator("#error-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected_combined["as_of"],
-                expected_combined["completeness"],
-                f"{expected_combined['real_net_worth']} EUR",
-                f"{expected_combined['savings_only']} EUR",
-                f"{expected_combined['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected_combined)
             final_cache = _get_run_cache(page)
             assert final_cache is not None
             assert sorted(final_cache["activeIds"]) == sorted([bank_id, broker_id])
@@ -305,15 +306,19 @@ def test_export_wipe_restore_round_trip_is_byte_identical(
 
 
 def test_restore_rejects_a_foreign_zip_without_touching_existing_files(
-    tmp_path: Path, shell_server: str  # noqa: F811 -- pytest fixture param, not a redefinition
+    tmp_path: Path,
+    shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
 ) -> None:
     with launch_chromium() as browser:
         context, page = _open_shell_page(
             browser, shell_server, viewport=_MOBILE_VIEWPORT, color_scheme="light"
         )
         try:
+            # Waits for the whole run (cache written, files linked to their account), not merely
+            # for the chart to show -- the snapshot below must not race the run's last writes.
+            prev_seq = _run_seq(page)
             _pick_files(page, [BANK_XLSX])
-            _wait_for_settled(page)
+            _wait_for_next_run(page, prev_seq)
             assert page.locator("#error-section").is_hidden()
             cache_before = _get_run_cache(page)
             assert cache_before is not None
@@ -326,6 +331,7 @@ def test_restore_rejects_a_foreign_zip_without_touching_existing_files(
                 zf.writestr("readme.txt", _GARBAGE_ZIP_CONTENT)
 
             prev_backup_seq = _backup_seq(page)
+            page.locator(".settings-toggle").click()  # as a user reaches the restore input
             page.locator("#restore-backup-input").set_input_files(str(foreign_zip))
             _wait_for_next_backup_action(page, prev_backup_seq)
 
@@ -350,13 +356,12 @@ def test_restore_rejects_a_foreign_zip_without_touching_existing_files(
 
 
 def test_backup_export_button_and_restore_input_render_at_390px(
-    tmp_path: Path, shell_server: str  # noqa: F811 -- pytest fixture param, not a redefinition
+    tmp_path: Path,
+    shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
 ) -> None:
-    """Screenshots the backup section at a real phone width in both themes. Not `full_page=True`
-    -- this project's own established artifact means a sandboxed chart iframe can render
-    misleadingly blank in a full-page capture that requires scrolling; the backup section itself
-    sits above the chart in document order and is fully in the initial viewport at this size, so
-    a plain (non-full-page) screenshot is both sufficient and the one that avoids that artifact.
+    """Screenshots the backup panel at a real phone width in both themes. Since WP-22b it sits
+    behind the settings icon in the header: closed on load, open after one tap, and it opens
+    over the page within the viewport (a plain, non-full-page screenshot suffices).
     """
     for theme in ("light", "dark"):
         with launch_chromium() as browser:
@@ -364,9 +369,15 @@ def test_backup_export_button_and_restore_input_render_at_390px(
                 browser, shell_server, viewport=_MOBILE_VIEWPORT, color_scheme=theme
             )
             try:
+                assert page.locator("#backup-section").is_hidden()
+                page.locator(".settings-toggle").click()
                 assert not page.locator("#backup-section").is_hidden()
                 assert not page.locator("#export-backup-button").is_hidden()
                 assert not page.locator("#restore-backup-input").is_hidden()
+                panel = page.locator("#backup-section").bounding_box()
+                assert panel is not None
+                assert panel["x"] >= 0
+                assert panel["x"] + panel["width"] <= _MOBILE_VIEWPORT["width"]
 
                 screenshot_path = tmp_path / f"backup_section_390_{theme}.png"
                 page.screenshot(path=str(screenshot_path))

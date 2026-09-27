@@ -24,6 +24,7 @@ def to_chart_rows(series: Sequence[Section1Period]) -> list[ChartRow]:
     """
     return [
         ChartRow(
+            month=p.month.strftime("%Y-%m"),
             month_label=p.month.strftime("%b %Y"),
             as_of=p.as_of.isoformat(),
             is_partial=p.is_partial,
@@ -35,6 +36,9 @@ def to_chart_rows(series: Sequence[Section1Period]) -> list[ChartRow]:
             savings_only_display=str(round_half_up(p.savings_only)),
             gap_display=str(round_half_up(p.gap)),
             savings_flow_display=str(round_half_up(p.savings_flow)),
+            positions_at_cost_display=str(round_half_up(p.positions_at_cost)),
+            estimated_display=str(round_half_up(p.estimated_net_worth)),
+            opening_balances_display=str(round_half_up(p.opening_balances)),
         )
         for p in series
     ]

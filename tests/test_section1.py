@@ -12,12 +12,15 @@ from hypothesis import strategies as st
 from builders import BANK_XLSX, BROKER_CSV
 from fina.adapters import bank_xlsx, broker_csv
 from fina.classification import classify_entries, collect_owned_accounts
-from fina.models import LedgerEntry, MovementType
+from fina.models import LedgerEntry, MovementType, Warning
 from fina.section1 import (
     Section1Period,
     cash_balance,
     compute_section1,
     contribution,
+    cost_basis_warnings,
+    opening_balances,
+    positions_at_cost,
     quantity_held,
     real_net_worth,
     savings_flow,
@@ -110,10 +113,18 @@ def test_t400_cash_balance_matches_the_oracle_running_column_row_by_row() -> Non
         assert got == expected_by_date[entry.date]
 
 
-def test_t401_final_broker_cash_is_21937_82() -> None:
+def test_t401_final_broker_net_worth_is_its_cash_plus_positions_at_cost() -> None:
+    """21937.82 of cash (both sub-accounts' cash effects) plus 6538.246667 of units still
+    held, at FIFO purchase cost (R-9.14)."""
     result = broker_csv.parse(BROKER_CSV)
     latest = max(e.date for e in result.entries)
-    assert real_net_worth(result.entries, latest) == Decimal("21937.82")
+    cash = sum(
+        (cash_balance(result.entries, "trade_republic", a, latest) for a in ("cash", "positions")),
+        start=Decimal("0"),
+    )
+    assert cash == Decimal("21937.82")
+    assert positions_at_cost(result.entries, latest) == Decimal("6538.246667")
+    assert real_net_worth(result.entries, latest) == Decimal("28476.066667")
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +160,7 @@ def test_t401b_combined_run_over_both_fixtures_is_28121_57_not_27121_57() -> Non
     broker_result = broker_csv.parse(BROKER_CSV)
     entries = [*bank_result.entries, *broker_result.entries]
     latest = max(e.date for e in entries)
-    got = real_net_worth(entries, latest)
+    got = real_net_worth(entries, latest) - positions_at_cost(entries, latest)
     assert got == Decimal("28121.57")
     assert got != Decimal("27121.57")  # the bug's old (wrong) combined answer
 
@@ -507,10 +518,10 @@ def test_a_non_final_month_is_never_partial() -> None:
     assert periods[0].as_of == date(2023, 1, 31)
 
 
-def test_t414_completeness_is_cash_only() -> None:
+def test_t414_completeness_flags_positions_at_cost() -> None:
     entry = make_entry(date=date(2023, 1, 1))
     periods = compute_section1([entry])
-    assert all(p.completeness == "cash_only" for p in periods)
+    assert all(p.completeness == "positions_at_cost" for p in periods)
 
 
 def test_t415_every_emitted_figure_is_decimal() -> None:
@@ -532,9 +543,9 @@ def test_t417_single_entry_ledger_yields_one_period_with_zero_gap() -> None:
     assert periods[0].gap == Decimal("0")
 
 
-def test_real_net_worth_never_includes_a_quantity_price_term() -> None:
-    """R-9.3/R-9.4: real_net_worth is cash-only by construction -- a BUY that moves cash but
-    also creates a holding must not have its holding's (nonexistent, D1) value added back.
+def test_a_buy_moves_cash_into_a_position_at_cost_leaving_net_worth_unchanged() -> None:
+    """R-9.3/R-9.4 (revised) and R-9.14: the 500 that left the cash is now held as 5 units
+    valued at what they cost -- never at a (nonexistent, D1) market price, never at zero.
     """
     buy = make_entry(
         movement_type=MovementType.BUY,
@@ -544,7 +555,8 @@ def test_real_net_worth_never_includes_a_quantity_price_term() -> None:
         asset="X1",
         account="positions",
     )
-    assert real_net_worth([buy], date(2023, 3, 10)) == Decimal("-500.00")
+    assert real_net_worth([buy], date(2023, 3, 10)) == Decimal("0")
+    assert positions_at_cost([buy], date(2023, 3, 10)) == Decimal("500.00")
 
 
 def test_real_net_worth_of_an_empty_ledger_is_decimal_zero_not_int() -> None:
@@ -634,3 +646,213 @@ def test_t604_gap_recursion_holds_for_any_ledger(entries: list[LedgerEntry]) -> 
         lhs = periods[i].gap - periods[i - 1].gap
         rhs = (periods[i].real_net_worth - periods[i - 1].real_net_worth) - periods[i].savings_flow
         assert lhs == rhs
+
+
+# ---------------------------------------------------------------------------
+# R-9.14: open positions at FIFO purchase cost
+# ---------------------------------------------------------------------------
+
+
+def _trade(row: int, quantity: str, cash: str, day: int = 10, **extra: object) -> LedgerEntry:
+    q = Decimal(quantity)
+    return make_entry(
+        entry_id=f"t{row}",
+        movement_type=MovementType.BUY if q > 0 else MovementType.SELL,
+        account="positions",
+        asset="X1",
+        quantity=q,
+        amount_eur=Decimal(cash),
+        cash_effect_eur=Decimal(cash),
+        is_external_flow=None,
+        source_row=row,
+        file_sequence=row,
+        date=date(2023, 3, day),
+        **extra,
+    )
+
+
+def test_a_sale_consumes_the_oldest_lots_first() -> None:
+    """Bought 10 at 100 then 10 at 300; selling 15 empties the first lot and half the second:
+    what is left costs 150, not the 225 an average-cost rule would give."""
+    trades = [_trade(2, "10", "-1000"), _trade(3, "10", "-3000"), _trade(4, "-15", "2500")]
+    assert positions_at_cost(trades, date(2023, 3, 10)) == Decimal("1500.000000")
+    # cash -1000 - 3000 + 2500 = -1500, plus 1500 still held at cost: the 15 sold for exactly
+    # what they cost (1000 + 1500), so nothing was gained or lost.
+    assert real_net_worth(trades, date(2023, 3, 10)) == Decimal("0")
+
+
+def test_a_partly_sold_lot_keeps_the_exact_remainder_of_its_cost() -> None:
+    """1/3 of a 100-cost lot is 33.333333 (6 decimals); the lot keeps 66.666667, and selling
+    the rest releases exactly that -- nothing is lost to rounding."""
+    trades = [_trade(2, "3", "-100"), _trade(3, "-1", "40")]
+    assert positions_at_cost(trades, date(2023, 3, 10)) == Decimal("66.666667")
+    everything = [*trades, _trade(4, "-2", "80")]
+    assert positions_at_cost(everything, date(2023, 3, 10)) == Decimal("0")
+
+
+def test_lots_follow_ledger_order_and_the_as_of_date() -> None:
+    later_buy = _trade(3, "1", "-50", day=20)
+    trades = [later_buy, _trade(2, "1", "-10", day=5), _trade(4, "-1", "12", day=25)]
+    assert positions_at_cost(trades, date(2023, 3, 19)) == Decimal("10")
+    assert positions_at_cost(trades, date(2023, 3, 25)) == Decimal("50")
+
+
+def test_lots_are_kept_per_asset() -> None:
+    other = _trade(3, "-1", "20")
+    other = make_entry(**{**_fields(other), "asset": "X2", "quantity": Decimal("-1")})
+    trades = [_trade(2, "1", "-10"), _trade(4, "1", "-30")]
+    assert positions_at_cost([*trades, other], date(2023, 3, 10)) == Decimal("40")
+
+
+def _fields(entry: LedgerEntry) -> dict[str, object]:
+    import dataclasses
+
+    return {f.name: getattr(entry, f.name) for f in dataclasses.fields(entry)}
+
+
+def test_technical_adjustments_never_move_lots() -> None:
+    migration_out = make_entry(
+        entry_id="m1",
+        movement_type=MovementType.TECHNICAL_ADJUSTMENT,
+        account="positions",
+        asset="X1",
+        quantity=Decimal("-1"),
+        amount_eur=Decimal("0"),
+        cash_effect_eur=Decimal("0"),
+        is_external_flow=None,
+        source_row=3,
+    )
+    trades = [_trade(2, "1", "-10"), migration_out]
+    assert positions_at_cost(trades, date(2023, 3, 10)) == Decimal("10")
+    assert cost_basis_warnings(trades) == ()
+
+
+def test_selling_units_never_bought_in_the_files_warns_once_and_values_nothing() -> None:
+    trades = [_trade(2, "1", "-10"), _trade(3, "-3", "45")]
+    assert positions_at_cost(trades, date(2023, 3, 10)) == Decimal("0")
+    assert cost_basis_warnings(trades) == (
+        Warning(
+            message=(
+                "test.csv:3: X1 -- 2 units leave the account but no earlier purchase of them "
+                "is in the supplied files, so their cost is unknown; import the older "
+                "statement that bought them"
+            ),
+            source_file="test.csv",
+            source_row=3,
+            rule="R-9.14",
+        ),
+    )
+
+
+def test_cost_basis_warnings_on_an_empty_ledger() -> None:
+    assert cost_basis_warnings([]) == ()
+
+
+def test_positions_at_cost_of_nothing_is_a_decimal_zero() -> None:
+    result = positions_at_cost([make_entry()], date(2023, 3, 10))
+    assert (result, type(result)) == (Decimal("0"), Decimal)
+
+
+def test_each_period_reports_its_positions_at_cost() -> None:
+    periods = compute_section1([make_entry(), _trade(3, "2", "-40", day=12)])
+    assert [p.positions_at_cost for p in periods] == [Decimal("40")]
+    assert periods[0].real_net_worth == Decimal("100.00")
+
+
+# ---------------------------------------------------------------------------
+# R-9.15: balances already held when an account's first statement starts
+# ---------------------------------------------------------------------------
+
+
+def _bank_row(row: int, cash: str, balance: str, day: int, month: int = 5) -> LedgerEntry:
+    return make_entry(
+        entry_id=f"b{row}",
+        institution="bank_es",
+        account="current_account",
+        movement_type=MovementType.EXPENSE,
+        amount_eur=Decimal(cash),
+        cash_effect_eur=Decimal(cash),
+        declared_balance=Decimal(balance),
+        source_file="bank.xlsx",
+        source_row=row,
+        file_sequence=-row,
+        date=date(2023, month, day),
+    )
+
+
+def test_the_bank_fixture_already_held_1000_before_its_first_row() -> None:
+    entries = bank_xlsx.parse(BANK_XLSX).entries
+    assert opening_balances(entries) == {
+        ("bank_es", "current_account"): (date(2027, 3, 1), Decimal("1000.00"))
+    }
+
+
+def test_accounts_without_a_declared_balance_have_no_opening_balance() -> None:
+    assert opening_balances(broker_csv.parse(BROKER_CSV).entries) == {}
+
+
+def test_opening_balance_uses_the_first_declared_balance_and_every_move_up_to_it() -> None:
+    """Rows 3 and 2 on the same day: the earlier one (row 3, later in the file) is the
+    baseline; 5000 - (-10) = 5010 was already there."""
+    rows = [_bank_row(2, "-20", "4980", day=4), _bank_row(3, "-10", "5000", day=4)]
+    assert opening_balances(rows) == {
+        ("bank_es", "current_account"): (date(2023, 5, 4), Decimal("5010"))
+    }
+
+
+def test_a_later_account_brings_its_opening_balance_as_savings_not_as_return() -> None:
+    """The broker starts in March; the bank's first statement row is in May and shows it
+    already held 5010. That money is savings from before the files, so the return stays 0."""
+    deposit = make_entry(date=date(2023, 3, 10), cash_effect_eur=Decimal("100.00"))
+    bank = [_bank_row(2, "-10", "5000", day=4)]
+    periods = compute_section1([deposit, *bank])
+    may = periods[2]
+    assert may.opening_balances == Decimal("5010")
+    assert may.savings_only == Decimal("100.00") + Decimal("5010") + Decimal("-10")
+    assert may.gap == Decimal("0")
+    assert [p.opening_balances for p in periods[:2]] == [Decimal("0"), Decimal("0")]
+
+
+def test_an_account_starting_in_the_first_month_is_not_counted_twice() -> None:
+    bank = [_bank_row(2, "-10", "5000", day=4, month=3)]
+    (march,) = compute_section1([make_entry(), *bank])
+    assert march.opening_balances == Decimal("0")
+    assert march.savings_only == march.real_net_worth
+
+
+def test_a_zero_quantity_row_opens_no_lot() -> None:
+    zero = make_entry(
+        entry_id="r3",
+        movement_type=MovementType.REDEMPTION,
+        account="positions",
+        asset="X1",
+        quantity=Decimal("0"),
+        amount_eur=Decimal("5"),
+        cash_effect_eur=Decimal("5"),
+        is_external_flow=None,
+        source_row=3,
+    )
+    assert positions_at_cost([_trade(2, "1", "-10"), zero], date(2023, 3, 10)) == Decimal("10")
+
+
+def test_selling_exactly_a_whole_lot_releases_all_of_its_cost() -> None:
+    """A lot sold in full goes as a whole, even when its cost has more decimals than the
+    6-decimal split would keep."""
+    trades = [_trade(2, "3", "-100.0000004"), _trade(3, "-3", "120")]
+    assert positions_at_cost(trades, date(2023, 3, 10)) == Decimal("0")
+
+
+def test_a_partial_split_rounds_half_up() -> None:
+    """Half of 0.000001 is 0.0000005: rounded half-up the half sold takes 0.000001, leaving 0
+    (half-even would leave 0.000001 behind)."""
+    trades = [_trade(2, "2", "-0.000001"), _trade(3, "-1", "1")]
+    assert positions_at_cost(trades, date(2023, 3, 10)) == Decimal("0.000000")
+
+
+def test_a_fully_matched_sale_warns_nothing() -> None:
+    assert cost_basis_warnings([_trade(2, "2", "-10"), _trade(3, "-2", "12")]) == ()
+
+
+def test_less_than_one_unmatched_unit_still_warns() -> None:
+    (warning,) = cost_basis_warnings([_trade(2, "1", "-10"), _trade(3, "-1.5", "15")])
+    assert "0.5 units leave the account" in warning.message

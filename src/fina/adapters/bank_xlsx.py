@@ -218,11 +218,14 @@ def _cell_to_date(value: object, *, source_file: str, source_row: int, column: s
 # instant/SEPA-Instant transfer, found on a real bank export) is optional: it names the rail
 # the transfer travelled over, not a different kind of movement -- same EXTERNAL_DEPOSIT/
 # EXTERNAL_WITHDRAWAL classification either way.
+# "A FAVOR DE" (the owner's real export: "TRANSFERENCIA A FAVOR DE <name> CONCEPTO ...") is
+# the same outgoing transfer worded longer; the words are not part of the beneficiary's name.
+# As on Bizum rows, the comma before "CONCEPTO" is optional (both appear on real exports).
 _RULE_TRANSFERENCIA_DE = re.compile(
-    r"^TRANSFERENCIA (?:INMEDIATA )?DE (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$"
+    r"^TRANSFERENCIA (?:INMEDIATA )?DE (?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$"
 )
 _RULE_TRANSFERENCIA_A = re.compile(
-    r"^TRANSFERENCIA (?:INMEDIATA )?A (?P<name>.+?)(?:,\s*CONCEPTO\b.*)?$"
+    r"^TRANSFERENCIA (?:INMEDIATA )?A (?:FAVOR DE )?(?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$"
 )
 _RULE_NOMINA = re.compile(r"^(?:NOMINA|ABONO NOMINA)")
 # Bizum's own "De"/"A favor de" name is the receiving bank's own record of the other party's

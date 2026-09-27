@@ -34,15 +34,20 @@ import io
 import json
 import shutil
 import zipfile
+from collections.abc import Sequence
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from fina.classification import OwnershipCandidate
 from fina.errors import FinaError
-from fina.money import round_half_up
+from fina.models import USER_CONFIRMED_INSTITUTION, AccountDeclaration, LedgerEntry
+from fina.money import normalize_iban, round_half_up
 from fina.pipeline import run_pipeline, sniff_adapter_name
 from fina.render.prepare import to_chart_rows
 from fina.render.section1_chart import render_section1_chart
+from fina.section1 import cash_balance, positions_at_cost
 
 __all__ = ["export_backup", "import_backup", "run", "sniff"]
 
@@ -192,6 +197,7 @@ def run(active_files: Any) -> dict[str, Any]:
             "ok": False,
             "warnings": [],
             "candidates": [],
+            "accounts": [],
             "summary": None,
             "manifest_json": None,
             "chart_html": None,
@@ -216,6 +222,7 @@ def run(active_files: Any) -> dict[str, Any]:
             "ok": False,
             "warnings": [],
             "candidates": [],
+            "accounts": [],
             "summary": None,
             "manifest_json": None,
             "chart_html": None,
@@ -226,6 +233,7 @@ def run(active_files: Any) -> dict[str, Any]:
     (_OUT_DIR / "section1_chart.html").write_text(chart_html, encoding="utf-8")
     manifest_json = (_OUT_DIR / "manifest.json").read_text(encoding="utf-8")
 
+    latest_as_of = result.series[-1].as_of if result.series else None
     summary: dict[str, Any] | None = None
     if result.series:
         latest = result.series[-1]
@@ -239,6 +247,7 @@ def run(active_files: Any) -> dict[str, Any]:
                 if latest.estimated_net_worth
                 else None
             ),
+            "positions_at_cost": str(round_half_up(latest.positions_at_cost)),
             "savings_only": str(round_half_up(latest.savings_only)),
             "gap": str(round_half_up(latest.gap)),
         }
@@ -248,6 +257,7 @@ def run(active_files: Any) -> dict[str, Any]:
         # R-1.24: R-3.6 warnings are shown as ownership candidates instead (see `candidates`).
         "warnings": [w.message for w in result.warnings if w.rule != "R-3.6"],
         "candidates": [_candidate_json(c) for c in result.ownership_candidates],
+        "accounts": _accounts_json(result.owned_accounts, result.entries, latest_as_of),
         "summary": summary,
         "manifest_json": manifest_json,
         "chart_html": chart_html,
@@ -270,6 +280,58 @@ def _candidate_json(candidate: OwnershipCandidate) -> dict[str, Any]:
         "estimated_balance": str(round_half_up(candidate.estimated_balance)),
         "unseen_income": str(round_half_up(candidate.unseen_income)),
     }
+
+
+def account_key(declaration: AccountDeclaration) -> str:
+    """How the app names one account across runs: its normalized IBAN, or its institution when
+    the statement carries none (a broker export) -- the same key the confirmation file's
+    `aliases` use (R-3.8)."""
+    if declaration.iban_or_account:
+        return normalize_iban(declaration.iban_or_account)
+    return declaration.institution
+
+
+def _accounts_json(
+    declarations: Sequence[AccountDeclaration],
+    entries: Sequence[LedgerEntry],
+    as_of: date | None,
+) -> list[dict[str, Any]]:
+    """The accounts backed by a statement in this run, one per `account_key`, with every file
+    that declared it (so the app lists each file inside its account) and, when the institution
+    has only this one account, its balance: every sub-account's cash plus open positions at
+    cost (R-9.14) -- the engine's own functions, never recomputed here."""
+    groups: dict[str, dict[str, Any]] = {}
+    for d in declarations:
+        if d.institution == USER_CONFIRMED_INSTITUTION:
+            continue  # R-3.8: listed as a candidate, not as a statement account
+        key = account_key(d)
+        group = groups.setdefault(
+            key,
+            {
+                "key": key,
+                "institution": d.institution,
+                "iban": key if d.iban_or_account else None,
+                "holder_name": d.holder_name,
+                "files": [],
+                "balance": None,
+            },
+        )
+        if d.declared_in_file not in group["files"]:
+            group["files"].append(d.declared_in_file)
+    institutions = [g["institution"] for g in groups.values()]
+    for group in groups.values():
+        if as_of is not None and institutions.count(group["institution"]) == 1:
+            balance = _institution_balance(entries, group["institution"], as_of)
+            group["balance"] = str(round_half_up(balance))
+    return list(groups.values())
+
+
+def _institution_balance(entries: Sequence[LedgerEntry], institution: str, as_of: date) -> Decimal:
+    own = [e for e in entries if e.institution == institution]
+    return sum(
+        (cash_balance(own, institution, a, as_of) for a in dict.fromkeys(e.account for e in own)),
+        start=positions_at_cost(own, as_of),
+    )
 
 
 def export_backup(raw_files: Any) -> bytes:

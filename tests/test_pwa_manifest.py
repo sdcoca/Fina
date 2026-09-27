@@ -218,8 +218,10 @@ def test_any_purpose_icons_are_drawn_in_line_real_blue_on_page_background() -> N
             # canvas, per web/icons/generate.py) -- at least one sampled point must be the exact
             # accent color, proving the mark itself was actually drawn in --line-real, not left
             # as a background-only square.
-            samples = [rgb.getpixel((int(width * t), int(height * (0.72 - 0.58 * t)))) for t in
-                       (0.15, 0.3, 0.45, 0.6, 0.75)]
+            samples = [
+                rgb.getpixel((int(width * t), int(height * (0.72 - 0.58 * t))))
+                for t in (0.15, 0.3, 0.45, 0.6, 0.75)
+            ]
             assert line_rgb in samples, (filename, samples)
 
 

@@ -21,27 +21,31 @@
 // that actually adds files follows the exact same write-then-refresh-then-run sequencing
 // `handleFiles` below already uses for a fresh pick -- see `handleRestore`.
 //
-// WP-19 (R-3.8): the "Accounts in your name" list. Each "Mine" / "Not mine" click rewrites the
-// own-accounts confirmation file (a stored file like any statement, via `storage.js`) and
-// re-runs -- the engine alone decides what that changes.
+// WP-19/WP-22b (R-3.8): the "Accounts" section after the chart (rendered by `accounts.js`):
+// statement accounts with their own files, accounts to confirm, and the names the user gave
+// them. Every "Mine" / "Not mine" / rename rewrites the own-accounts confirmation file (a
+// stored file like any statement, via `storage.js`) and re-runs -- the engine alone decides
+// what that changes. The chart itself carries the three headline figures (WP-22a), so there is
+// no separate summary card any more.
 
+import { renderAccounts } from "./accounts.js";
 import { exportBackupToFile, restoreFromFile } from "./backup.js";
 import { sniffAndPartition } from "./import.js";
 import {
-  mergeDecisions,
-  parseDecisions,
-  serializeDecisions,
+  mergeDocuments,
+  parseDocument,
+  serializeDocument,
   todayIso,
+  withAlias,
   withDecision,
 } from "./own-accounts.js";
 import { runBuild } from "./pyodide-bridge.js";
 import * as storage from "./storage.js";
 
 const fileInput = document.getElementById("file-input");
+const importButton = document.getElementById("import-button");
 const busyIndicator = document.getElementById("busy-indicator");
 const rejectedFilesEl = document.getElementById("rejected-files");
-const storedFilesEmptyEl = document.getElementById("stored-files-empty");
-const storedFilesListEl = document.getElementById("stored-files-list");
 const exportBackupButton = document.getElementById("export-backup-button");
 const restoreBackupInput = document.getElementById("restore-backup-input");
 const backupStatusEl = document.getElementById("backup-status");
@@ -49,14 +53,12 @@ const errorSection = document.getElementById("error-section");
 const errorMessageEl = document.getElementById("error-message");
 const statusSection = document.getElementById("status-section");
 const warningsEl = document.getElementById("warnings");
-const summaryEl = document.getElementById("summary");
-const ownAccountsSection = document.getElementById("own-accounts-section");
-const ownAccountsListEl = document.getElementById("own-accounts-list");
+const accountsSection = document.getElementById("accounts-section");
 const chartSection = document.getElementById("chart-section");
 const chartFrame = document.getElementById("chart-frame");
 
 // ---------------------------------------------------------------------------
-// PWA-5.3: iframe sizing. The chart's SVG is a fixed 960x420 viewBox (2.286:1); shell.css
+// PWA-5.3: iframe sizing. The chart document is roughly 390x520 at a phone width; shell.css
 // gives the iframe that aspect ratio as an immediate first-paint fallback. That alone is not
 // trusted to be enough headroom for the tooltip (absolutely positioned, can grow taller than
 // the base chart, per the chart module's own R-10.2/R-10.6) -- instead the chart document
@@ -210,182 +212,90 @@ function renderWarnings(warnings) {
   warningsEl.appendChild(list);
 }
 
-// `summary`'s figures (real_net_worth/savings_only/gap) are already-rounded display strings
-// from bridge.py (Decimal on the Python side); they are only ever concatenated below, never
-// parsed back into a JS Number/float.
-function renderSummary(summary) {
-  summaryEl.replaceChildren();
-  if (!summary) {
-    summaryEl.hidden = true;
-    return;
-  }
-  summaryEl.hidden = false;
-  const asOfLabel = summary.is_partial ? "As of (partial month)" : "As of";
-  const rows = [
-    [asOfLabel, summary.as_of],
-    ["Completeness", summary.completeness],
-    ["Real net worth", `${summary.real_net_worth} EUR`],
-  ];
-  if (summary.estimated) {
-    // R-9.13: the part held in confirmed accounts with no statement -- an estimate.
-    rows.push(["of which estimated", `${summary.estimated} EUR`]);
-  }
-  rows.push(["Savings only", `${summary.savings_only} EUR`], ["Gap", `${summary.gap} EUR`]);
-  const dl = document.createElement("dl");
-  dl.className = "summary-list";
-  for (const [label, value] of rows) {
-    const dt = document.createElement("dt");
-    dt.textContent = label;
-    const dd = document.createElement("dd");
-    dd.textContent = value;
-    dl.appendChild(dt);
-    dl.appendChild(dd);
-  }
-  summaryEl.appendChild(dl);
-}
-
 // ---------------------------------------------------------------------------
-// WP-19 (R-3.8): "Accounts in your name". Every figure is a display string from bridge.py.
+// WP-22b: the Accounts section. `_lastRun` holds what the latest successful run (or the
+// startup cache) said about accounts; stored files and names come from `storage.js`.
 // ---------------------------------------------------------------------------
 
-const _STATUS_ORDER = { pending: 0, owned: 1, not_owned: 2 };
+let _lastRun = { accounts: [], candidates: [] };
 
-// Accounts whose "Change" was clicked: shown with both choices again until one is picked.
-const _reopened = new Set();
-
-function _groupIban(iban) {
-  return iban.replace(/(.{4})(?=.)/g, "$1 ");
-}
-
-function _textEl(tag, className, text) {
-  const el = document.createElement(tag);
-  el.className = className;
-  el.textContent = text;
-  return el;
-}
-
-function _choiceButton(label, className, candidate, owned) {
-  const button = _textEl("button", `own-account-button ${className}`, label);
-  button.type = "button";
-  button.addEventListener("click", () => {
-    for (const b of ownAccountsListEl.querySelectorAll("button")) {
-      b.disabled = true;
-    }
-    decideAccount(candidate, owned).catch((err) => {
-      showError(err && err.message ? err.message : String(err));
-    });
-  });
-  return button;
-}
-
-function _ownAccountItem(candidate) {
-  const li = document.createElement("li");
-  li.className = `own-account own-account--${candidate.status}`;
-  li.dataset.iban = candidate.iban;
-  const missingData = candidate.status === "owned" && candidate.unseen_income !== "0.00";
-  if (missingData) {
-    li.classList.add("own-account--missing-data");
-  }
-
-  const names = candidate.holder_names.length ? candidate.holder_names.join(" · ") : "—";
-  li.appendChild(_textEl("p", "own-account-name", names));
-  li.appendChild(_textEl("p", "own-account-iban", _groupIban(candidate.iban)));
-  const count = candidate.transfers === 1 ? "1 transfer" : `${candidate.transfers} transfers`;
-  const period =
-    candidate.first_date === candidate.last_date
-      ? candidate.first_date
-      : `${candidate.first_date} – ${candidate.last_date}`;
-  li.appendChild(
-    _textEl(
-      "p",
-      "own-account-meta",
-      `${count} · in ${candidate.total_in} EUR · out ${candidate.total_out} EUR · ${period}`
-    )
-  );
-
-  if (candidate.status === "owned") {
-    li.appendChild(
-      _textEl(
-        "p",
-        "own-account-balance",
-        `Estimated balance: ${candidate.estimated_balance} EUR (importing its statement ` +
-          "replaces the estimate)"
-      )
-    );
-  }
-  if (missingData) {
-    li.appendChild(
-      _textEl(
-        "p",
-        "own-account-missing",
-        `Missing data: at least ${candidate.unseen_income} EUR reached this account from ` +
-          "outside. Import its statement."
-      )
-    );
-  }
-
-  const actions = document.createElement("div");
-  actions.className = "own-account-actions";
-  if (candidate.status === "pending" || _reopened.has(candidate.iban)) {
-    actions.appendChild(_choiceButton("Mine", "own-account-button--mine", candidate, true));
-    actions.appendChild(
-      _choiceButton("Not mine", "own-account-button--not-mine", candidate, false)
-    );
-  } else {
-    const label = candidate.status === "owned" ? "Marked as yours" : "Marked as not yours";
-    actions.appendChild(_textEl("span", "own-account-status", label));
-    const change = _textEl("button", "own-account-button own-account-button--change", "Change");
-    change.type = "button";
-    change.addEventListener("click", () => {
-      _reopened.add(candidate.iban);
-      li.replaceWith(_ownAccountItem(candidate));
-    });
-    actions.appendChild(change);
-  }
-  li.appendChild(actions);
-  return li;
-}
-
-/**
- * Accounts that need a decision first, then the decided ones -- each group in the engine's
- * own first-seen order (R-3.8).
- */
-function renderOwnAccounts(candidates) {
-  ownAccountsListEl.replaceChildren();
-  _reopened.clear();
-  if (!candidates || candidates.length === 0) {
-    ownAccountsSection.hidden = true;
-    return;
-  }
-  ownAccountsSection.hidden = false;
-  const ordered = [...candidates].sort(
-    (a, b) => _STATUS_ORDER[a.status] - _STATUS_ORDER[b.status]
-  );
-  for (const candidate of ordered) {
-    ownAccountsListEl.appendChild(_ownAccountItem(candidate));
-  }
-}
-
-/** One confirmation file out of however many are stored, as a list of decisions. */
-async function _currentDecisions() {
+/** The stored confirmation file(s) as one document: decisions and names. */
+async function _currentDocument() {
   const files = await storage.getOwnAccountsFiles();
-  return mergeDecisions(files.map((f) => parseDecisions(f.bytes)));
+  return mergeDocuments(files.map((f) => parseDocument(f.bytes)));
 }
 
-/** Records the user's decision on one account, then recomputes over the active set. */
-async function decideAccount(candidate, owned) {
-  const decisions = await _currentDecisions();
-  const previous = decisions.find((d) => d.iban === candidate.iban);
-  const holderName = candidate.holder_names[0] ?? (previous && previous.holder_name);
-  const updated = withDecision(decisions, {
-    iban: candidate.iban,
-    holder_name: holderName,
-    owned,
-    decided_on: todayIso(),
-  });
-  await storage.replaceOwnAccountsFile(serializeDecisions(updated));
-  await refreshStoredFilesChecklist();
+/** Every account to show, its files inside it; files never linked to one go to "Other". */
+async function refreshAccounts({ expandAttention = false } = {}) {
+  const files = await storage.listRawFiles();
+  const documentFiles = files.filter((f) => f.recognizedAs === storage.OWN_ACCOUNTS_ADAPTER);
+  const statementFiles = files.filter((f) => f.recognizedAs !== storage.OWN_ACCOUNTS_ADAPTER);
+  const { aliases } = documentFiles.length ? await _currentDocument() : { aliases: {} };
+
+  const byKey = new Map();
+  for (const account of _lastRun.accounts) {
+    byKey.set(account.key, { ...account, files: [] });
+  }
+  const unlinkedFiles = [];
+  for (const file of statementFiles) {
+    const account = file.account;
+    if (!account) {
+      unlinkedFiles.push(file);
+      continue;
+    }
+    if (!byKey.has(account.key)) {
+      byKey.set(account.key, { ...account, balance: null, files: [] });
+    }
+    byKey.get(account.key).files.push(file);
+  }
+  renderAccounts(
+    accountsSection,
+    {
+      statementAccounts: [...byKey.values()],
+      candidates: _lastRun.candidates,
+      unlinkedFiles,
+      aliases,
+    },
+    {
+      onToggleFile: onToggleActive,
+      onDecide: decideAccount,
+      onRename: renameAccount,
+      onImport: () => fileInput.click(),
+      onError: (err) => showError(err && err.message ? err.message : String(err)),
+    },
+    { expandAttention }
+  );
+  return files;
+}
+
+/** Rewrites the confirmation file with `change` applied, then recomputes. */
+async function _updateDocument(change) {
+  const doc = await _currentDocument();
+  await storage.replaceOwnAccountsFile(serializeDocument(change(doc)));
+  await refreshAccounts();
   await runOverActiveSet();
+}
+
+/** Records the user's decision on one account (R-3.8). */
+async function decideAccount(candidate, owned) {
+  await _updateDocument((doc) => {
+    const previous = doc.accounts.find((d) => d.iban === candidate.iban);
+    const holderName = candidate.holder_names[0] ?? (previous && previous.holder_name);
+    return {
+      ...doc,
+      accounts: withDecision(doc.accounts, {
+        iban: candidate.iban,
+        holder_name: holderName,
+        owned,
+        decided_on: todayIso(),
+      }),
+    };
+  });
+}
+
+/** Names one account (a blank name goes back to the default label). */
+async function renameAccount(key, name) {
+  await _updateDocument((doc) => ({ ...doc, aliases: withAlias(doc.aliases, key, name) }));
 }
 
 /**
@@ -395,85 +305,20 @@ async function decideAccount(candidate, owned) {
 async function consolidateOwnAccounts() {
   const files = await storage.getOwnAccountsFiles();
   if (files.length > 1) {
-    await storage.replaceOwnAccountsFile(serializeDecisions(await _currentDecisions()));
+    await storage.replaceOwnAccountsFile(serializeDocument(await _currentDocument()));
   }
 }
 
-// ---------------------------------------------------------------------------
-// WP-15: the stored-files (rawFiles) active/inactive checklist.
-// ---------------------------------------------------------------------------
-
-function _formatSize(bytes) {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Renders the full stored-files checklist from `files` (as returned by
- * `storage.listRawFiles()`), sorted by filename for a stable, predictable display order --
- * `getAll()`'s own order is by content-hash key, which has no meaningful reading order.
- * Each row's checkbox is the *only* control that ever changes `rawFiles.active`
- * (`storage.setActive`, via `onToggleActive`).
- */
-function renderStoredFiles(files) {
-  storedFilesListEl.replaceChildren();
-  if (files.length === 0) {
-    storedFilesEmptyEl.hidden = false;
-    storedFilesListEl.hidden = true;
-    return;
-  }
-  storedFilesEmptyEl.hidden = true;
-  storedFilesListEl.hidden = false;
-
-  const sorted = [...files].sort((a, b) => a.filename.localeCompare(b.filename));
-  for (const file of sorted) {
-    const li = document.createElement("li");
-    li.dataset.fileId = file.id;
-    if (!file.active) {
-      li.classList.add("stored-file-inactive");
+/** Remembers, per stored file, the account the run found it declares (see storage.js). */
+async function _linkFilesToAccounts(accounts) {
+  const byFilename = {};
+  for (const account of accounts) {
+    const { files, balance, ...identity } = account;
+    for (const filename of files) {
+      byFilename[filename] = identity;
     }
-
-    const label = document.createElement("label");
-    label.className = "stored-file-row";
-
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.className = "stored-file-checkbox";
-    checkbox.checked = file.active;
-    checkbox.setAttribute("aria-label", `Include ${file.filename} in the next run`);
-    checkbox.addEventListener("change", () => {
-      onToggleActive(file.id, checkbox.checked).catch((err) => {
-        showError(err && err.message ? err.message : String(err));
-      });
-    });
-
-    const info = document.createElement("div");
-    info.className = "stored-file-info";
-    const name = document.createElement("span");
-    name.className = "stored-file-name";
-    name.textContent = file.filename;
-    const meta = document.createElement("span");
-    meta.className = "stored-file-meta";
-    meta.textContent = `${file.recognizedAs ?? "unknown"} · ${_formatSize(file.size)}`;
-    info.appendChild(name);
-    info.appendChild(meta);
-
-    label.appendChild(checkbox);
-    label.appendChild(info);
-    li.appendChild(label);
-    storedFilesListEl.appendChild(li);
   }
-}
-
-async function refreshStoredFilesChecklist() {
-  const files = await storage.listRawFiles();
-  renderStoredFiles(files);
-  return files;
+  await storage.setFileAccounts(byFilename);
 }
 
 function _sortedIds(list) {
@@ -508,9 +353,9 @@ async function displayCachedResultIfFresh(files) {
     return;
   }
   renderWarnings(cache.warnings);
-  renderSummary(cache.summary);
   statusSection.hidden = false;
-  renderOwnAccounts(cache.candidates);
+  _lastRun = { accounts: cache.accounts || [], candidates: cache.candidates || [] };
+  await refreshAccounts();
   showChart(cache.chartHtml);
 }
 
@@ -520,11 +365,10 @@ async function displayCachedResultIfFresh(files) {
  * failure, `storage.js`'s `runCache` is left completely untouched (§2.4.2) -- this function
  * simply never calls `setRunCache`/`clearRunCache` on that path.
  */
-async function runOverActiveSet() {
+async function runOverActiveSet({ expandAttention = false } = {}) {
   hideError();
   clearChart();
   statusSection.hidden = true;
-  renderOwnAccounts([]);
 
   try {
     const activeRecords = await storage.getActiveFiles();
@@ -550,21 +394,26 @@ async function runOverActiveSet() {
         );
         return;
       }
-      renderWarnings(result.warnings);
-      renderSummary(result.summary);
-      statusSection.hidden = false;
-      renderOwnAccounts(result.candidates);
-      showChart(result.chart_html);
-
+      // Everything the run must persist is written first (each file's account, the cache), and
+      // only then shown: once the result is on screen, it is also safely stored -- a reload at
+      // that moment can never find a half-written state.
+      _lastRun = { accounts: result.accounts, candidates: result.candidates };
+      await _linkFilesToAccounts(result.accounts);
       await storage.setRunCache({
         activeIds: activeRecords.map((r) => r.id),
         warnings: result.warnings,
+        accounts: result.accounts,
         candidates: result.candidates,
         summary: result.summary,
         manifestJson: result.manifest_json,
         chartHtml: result.chart_html,
         computedAt: new Date().toISOString(),
       });
+
+      renderWarnings(result.warnings);
+      statusSection.hidden = false;
+      await refreshAccounts({ expandAttention });
+      showChart(result.chart_html);
     } finally {
       setBusy(false);
     }
@@ -582,7 +431,7 @@ async function runOverActiveSet() {
 /** A stored file's checkbox changed -- the sole path that ever changes `rawFiles.active`. */
 async function onToggleActive(id, active) {
   await storage.setActive(id, active);
-  await refreshStoredFilesChecklist();
+  await refreshAccounts();
   // WP-15 task spec: toggling re-runs the pipeline over the new active set immediately (chosen
   // over "signal only, wait for an explicit re-run action") -- the checklist is the only control
   // for `active`, so its own change event is already the user's explicit "recompute with this
@@ -604,6 +453,7 @@ function hideError() {
 function setBusy(isBusy) {
   busyIndicator.hidden = !isBusy;
   fileInput.disabled = isBusy;
+  importButton.disabled = isBusy;
 }
 
 // ---------------------------------------------------------------------------
@@ -634,7 +484,7 @@ async function handleFiles(fileList) {
   }
 
   if (recognized.length > 0) {
-    await refreshStoredFilesChecklist();
+    await refreshAccounts();
   }
 
   if (recognized.length === 0) {
@@ -646,12 +496,20 @@ async function handleFiles(fileList) {
 
   // WP-15 (Q-M, "persistent library"): the run's input is every stored *active* file, not only
   // what was just picked -- picking adds to the persistent set rather than replacing it.
-  await runOverActiveSet();
+  // WP-22b: a file was loaded, so the account groups that need attention open by themselves.
+  await runOverActiveSet({ expandAttention: true });
 }
 
+// WP-22b: the Accounts header's "Import" button opens the (hidden) file picker. A button is
+// interactive content, so tapping it never also opens/closes the section it sits in.
+importButton.addEventListener("click", () => fileInput.click());
+
 fileInput.addEventListener("change", (event) => {
-  const files = event.target.files;
-  if (!files || files.length === 0) {
+  const files = Array.from(event.target.files || []);
+  // Cleared right away (the picker is hidden now, WP-22b): picking the same file again later
+  // must still fire "change".
+  fileInput.value = "";
+  if (files.length === 0) {
     return;
   }
   handleFiles(files).catch((err) => {
@@ -721,7 +579,7 @@ async function handleRestore(file) {
 
   if (restored.length > 0) {
     await consolidateOwnAccounts();
-    await refreshStoredFilesChecklist();
+    await refreshAccounts();
   }
 
   const parts = [];
@@ -740,7 +598,7 @@ async function handleRestore(file) {
   showBackupStatus(parts.join(" "), rejected.length > 0 && restored.length === 0);
 
   if (restored.length > 0) {
-    await runOverActiveSet();
+    await runOverActiveSet({ expandAttention: true });
   }
 }
 
@@ -769,7 +627,7 @@ restoreBackupInput.addEventListener("change", (event) => {
 // ---------------------------------------------------------------------------
 
 async function init() {
-  const files = await refreshStoredFilesChecklist();
+  const files = await refreshAccounts();
   await displayCachedResultIfFresh(files);
 }
 

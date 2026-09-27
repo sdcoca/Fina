@@ -38,9 +38,11 @@ def test_to_chart_rows_exact_display_values_for_all_four_fields() -> None:
         as_of=date(2027, 3, 31),
         is_partial=False,
         real_net_worth=Decimal("111.111"),
-        estimated_net_worth=Decimal("0"),
-        completeness="cash_only",
+        positions_at_cost=Decimal("555.555"),
+        estimated_net_worth=Decimal("666.666"),
+        completeness="positions_at_cost",
         savings_flow=Decimal("444.444"),
+        opening_balances=Decimal("777.777"),
         savings_only=Decimal("222.222"),
         gap=Decimal("333.333"),
     )
@@ -49,3 +51,7 @@ def test_to_chart_rows_exact_display_values_for_all_four_fields() -> None:
     assert row.savings_only_display == "222.22"
     assert row.gap_display == "333.33"
     assert row.savings_flow_display == "444.44"
+    assert row.positions_at_cost_display == "555.56"
+    assert row.estimated_display == "666.67"
+    assert row.opening_balances_display == "777.78"
+    assert (row.month, row.month_label) == ("2027-03", "Mar 2027")

@@ -65,7 +65,9 @@ from test_pwa_shell import (
     BROKER_CSV,
     FIXTURES_DIR,
     _block_everything_off_origin,
+    _expected_legend,
     _expected_summary_for,
+    _open_accounts,
     _pick_files,
     _summary_dd_texts,
     _wait_for_settled,
@@ -130,7 +132,8 @@ async (filesB64) => {
 
 
 def test_wp15_two_session_persistence_and_cache_integrity(
-    tmp_path: Path, shell_server: str  # noqa: F811 -- pytest fixture param, not a redefinition
+    tmp_path: Path,
+    shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
 ) -> None:
     bank_id = _sha256_hex(BANK_XLSX)
     broker_id = _sha256_hex(BROKER_CSV)
@@ -162,27 +165,22 @@ def test_wp15_two_session_persistence_and_cache_integrity(
             # --- Session 1: fresh page, pick both fixtures, run succeeds. ---
             page.goto(f"{shell_server}/index.html")
             page.wait_for_function("window.__finaChecklistReady === true")
-            assert page.locator("#stored-files-list li").count() == 0
-            assert not page.locator("#stored-files-empty").is_hidden()
+            assert page.locator("#accounts-groups .stored-file").count() == 0
+            assert not page.locator("#accounts-empty").is_hidden()
 
             _pick_files(page, [BANK_XLSX, BROKER_CSV])
             _wait_for_settled(page)
             assert page.locator("#error-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected_combined["as_of"],
-                expected_combined["completeness"],
-                f"{expected_combined['real_net_worth']} EUR",
-                f"{expected_combined['savings_only']} EUR",
-                f"{expected_combined['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected_combined)
 
             # --- Session 2: navigate again, same context/origin -- no re-picking. ---
             page.goto(f"{shell_server}/index.html")
             page.wait_for_function("window.__finaChecklistReady === true")
 
-            rows = page.locator("#stored-files-list li")
+            rows = page.locator("#accounts-groups .stored-file")
             assert rows.count() == 2, "both previously-picked files must reappear with no re-pick"
-            names = page.locator("#stored-files-list .stored-file-name").all_inner_texts()
+            # Inside the (collapsed, WP-22b) Accounts section: read as text, not as rendered.
+            names = page.locator("#accounts-groups .stored-file-name").all_text_contents()
             assert set(names) == {BANK_XLSX.name, BROKER_CSV.name}
             for file_id in (bank_id, broker_id):
                 checkbox = page.locator(f'li[data-file-id="{file_id}"] .stored-file-checkbox')
@@ -194,18 +192,15 @@ def test_wp15_two_session_persistence_and_cache_integrity(
             _wait_for_settled(page)
             assert page.locator("#error-section").is_hidden()
             assert not page.locator("#chart-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected_combined["as_of"],
-                expected_combined["completeness"],
-                f"{expected_combined['real_net_worth']} EUR",
-                f"{expected_combined['savings_only']} EUR",
-                f"{expected_combined['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected_combined)
 
             cache_after_session2_load = page.evaluate(_GET_RUN_CACHE_JS)
             assert cache_after_session2_load is not None
             assert sorted(cache_after_session2_load["activeIds"]) == sorted([bank_id, broker_id])
-            assert cache_after_session2_load["manifestJson"].encode("utf-8") == native_combined_manifest
+            assert (
+                cache_after_session2_load["manifestJson"].encode("utf-8")
+                == native_combined_manifest
+            )
             assert cache_after_session2_load["chartHtml"].encode("utf-8") == native_combined_chart
 
             # --- Non-staleness proof: a genuine from-scratch recompute, called directly,
@@ -226,23 +221,21 @@ def test_wp15_two_session_persistence_and_cache_integrity(
             # run instead.
             prev_seq = _run_seq(page)
             broker_checkbox = page.locator(f'li[data-file-id="{broker_id}"] .stored-file-checkbox')
+            _open_accounts(page)
             broker_checkbox.uncheck()
             _wait_for_next_run(page, prev_seq)
             assert page.locator("#error-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected_bank_only["as_of"],
-                expected_bank_only["completeness"],
-                f"{expected_bank_only['real_net_worth']} EUR",
-                f"{expected_bank_only['savings_only']} EUR",
-                f"{expected_bank_only['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected_bank_only)
             broker_row = page.locator(f'li[data-file-id="{broker_id}"]')
             assert "stored-file-inactive" in (broker_row.get_attribute("class") or "")
 
             cache_before_failure = page.evaluate(_GET_RUN_CACHE_JS)
             assert cache_before_failure is not None
             assert cache_before_failure["activeIds"] == [bank_id]
-            assert cache_before_failure["summary"]["real_net_worth"] == expected_bank_only["real_net_worth"]
+            assert (
+                cache_before_failure["summary"]["real_net_worth"]
+                == expected_bank_only["real_net_worth"]
+            )
 
             # --- Force a failing run: pick a shape-recognized but reconciliation-breaking file
             # (one movement's declared balance is one cent off, so R-8.2's chain breaks -- the
@@ -273,9 +266,11 @@ def test_wp15_two_session_persistence_and_cache_integrity(
             # The corrupted file is still recorded (persistent library: nothing is silently
             # dropped even though the run that included it failed), and left active -- toggling
             # it off is the user's own recovery action, not something a failed run does itself.
-            assert page.locator("#stored-files-list li").count() == 3
+            assert page.locator("#accounts-groups .stored-file").count() == 3
             corrupted_id = _sha256_hex(corrupted_path)
-            corrupted_checkbox = page.locator(f'li[data-file-id="{corrupted_id}"] .stored-file-checkbox')
+            corrupted_checkbox = page.locator(
+                f'li[data-file-id="{corrupted_id}"] .stored-file-checkbox'
+            )
             assert corrupted_checkbox.is_checked()
 
             screenshot_path = tmp_path / "storage_checklist_390_light.png"

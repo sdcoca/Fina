@@ -57,6 +57,7 @@ from test_pwa_shell import (
     FIXTURES_DIR,
     WEB_DIR,
     _assert_chart_iframe_has_real_content,
+    _expected_legend,
     _expected_summary_for,
     _pick_files,
     _summary_dd_texts,
@@ -222,13 +223,7 @@ def test_full_offline_flow_after_first_install(
                 f"error shown: {page.locator('#error-message').inner_text()!r}"
             )
             assert not page.locator("#chart-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected["as_of"],
-                expected["completeness"],
-                f"{expected['real_net_worth']} EUR",
-                f"{expected['savings_only']} EUR",
-                f"{expected['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected)
             _assert_chart_iframe_has_real_content(page)
 
             screenshot_path = tmp_path / "sw_offline_flow_390_light.png"

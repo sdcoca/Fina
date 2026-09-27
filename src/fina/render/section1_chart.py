@@ -1,96 +1,57 @@
 """Section 1 chart renderer (spec section 10).
 
-Implements: R-10.1..R-10.5.
+Implements: R-10.1..R-10.8.
 
-Ported from the project owner's approved mock (Q-G resolution --
-`docs/design/section1-approved-mock.html`, iterated on directly with the project owner and
-saved into the repo for exactly this reason after WP-9 could not reach it): colours,
-typography (IBM Plex Serif/Sans/Mono), spacing, the click-to-reveal tooltip with its own close
-button, a translucent (plain alpha compositing -- never a CSS background-blur property, per
-R-10.2b) tooltip background, direct
-end-of-line value labels, and a two-line series legend with no band-colour chips are all
-carried over from that file. WP-9's original version here was an independently-designed
-placeholder built because the mock was unreachable from that session's environment (Q-G); this
-is the "port it, do not redesign it" pass implementation-plan.md's WP-9 entry always called for.
+WP-22a (2026-09-26, the project owner's mock iterations v2-v4, approved at a real 390px phone
+width): the chart is the page's summary. It shows three figures as a legend with their latest
+value — "Net worth (cash and other assets)", "Total Savings (cash contributions)" and "Total
+Return of Investments" (the signed band between the two lines) — above a plot drawn edge to
+edge, with the y-axis labels inside the plot and at most five x-axis labels. English
+throughout; the words "gap"/"hueco" never appear in displayed text. While open positions are
+valued at purchase cost (R-9.4/R-9.14) a note says so in plain words.
 
-One deliberate deviation from the mock, flagged per Q-G's own instruction to record any case
-where the mock's design actually conflicts with a literal rule rather than silently picking a
-side (logged as open question Q-I): the mock loads "IBM Plex *" from `fonts.googleapis.com` via
-a `<link>` tag. This module's long-standing contract (R-10.1's rationale: "suitable for a
-headless browser to screenshot or export to PDF") is a **self-contained** document with no
-external assets -- `tests/browser_support.py` documents that outbound network access to any CDN
-is blocked in this project's own environment, and a PDF/screenshot pipeline that silently
-degrades (or stalls) without network access on every future run is a determinism risk (R-1.20)
-not worth taking for a cosmetic font. The font-family *declarations* are ported verbatim
-(`"IBM Plex Serif"` / `"IBM Plex Sans"` / `"IBM Plex Mono"`, each with the mock's own fallback
-stack, so the page still reads correctly wherever the real faces are installed); the `<link>`
-tag itself is not.
+Carried over unchanged from the approved Q-G port: the band coloured by the sign of the return
+and split at the exact linear zero-crossing (R-10.2), the click-only tooltip with its own close
+control and plain-alpha translucency (R-10.2/R-10.2b), token-defined themes (R-10.3), and the
+Q-J touch/focus fixes (R-10.7/R-10.8, see the CSS comments at `.hit-area`).
 
-R-10.4 ("the renderer MUST NOT recompute any financial figure") is enforced structurally, not
-just by convention: this module never imports or uses `decimal.Decimal` at all (T-700 greps
-for it), so it is structurally incapable of computing a new financial figure from another --
-`gap`, `real_net_worth`, `savings_only` and `savings_flow` arrive as already-rounded display
-*strings* (`ChartRow`, R-1.5's rounding-for-display already applied by whoever builds a
-`ChartRow` -- see `to_chart_rows` in `fina.render.prepare`) and are placed on the page verbatim;
-the only numbers this module computes itself are pixel coordinates (`ChartRow`'s `*_position`
-floats, unavoidable for any renderer) and small presentation-only string transforms (an axis
-tick rounded to the nearest thousand, a "+"/"-" sign prefix on the headline gap) -- neither is a
-financial figure in its own right.
-
-R-9.4's `cash_only` qualifier is deliberately **not** appended to any figure here any more (Q-E
-resolution, `docs/plan/open-questions.md`): the project owner decided that repeating it inline
-on every number in this interim chart was noise, and that portfolio-composition/completeness
-caveats belong in a later, dedicated report section instead. `ChartRow.completeness` is still
-carried through (a future caller needs it) but this module no longer branches on it. R-10.5 was
-revised accordingly -- see the spec.
-
-Three real visual defects (found by the project owner rendering this module's actual output, on
-a real headless browser at 390px in both themes/tooltip states, and separately on a real Android
-phone -- none caught by the pre-existing, narrowly-targeted test suite despite 100% coverage and
-high mutation scores) are fixed here and closed structurally via a new gate, G-9, in
-`docs/plan/test-plan.md`: a tooltip value column overflowing its own tooltip box with no
-background behind the overflow (`.tooltip`'s `max-width` / the script's `tipWidth` were sized
-for today's copy, not headroom); the SVG's own end-of-line labels overflowing past their
-intended visual bound (`_PAD_RIGHT` was similarly razor-thin); and a mobile browser's default
-`-webkit-tap-highlight-color` overlay on `.hit-area`, invisible to every synthetic
-`page.mouse.click()` this project's own browser tests use (see `docs/plan/open-questions.md`
-Q-J for the full account, including why a real `page.touchscreen.tap()` test was required to
-even exercise that code path).
-
-**Correction (Q-J's appended entry, `docs/plan/open-questions.md`)**: the tap-highlight-color
-fix above was necessary but not sufficient -- a real Android touch tap still showed an orange
-rectangle after it. The actual remaining cause was the browser's own native `:focus` outline
-(`.hit-area` carries `tabindex="0"`, and a touch tap does not always satisfy Chromium's
-`:focus-visible` heuristic), not `-webkit-tap-highlight-color` and not `:focus-visible` itself.
-Fixed by adding `.hit-area:focus { outline: none; }` alongside the pre-existing
-`:focus-visible` rule, which is left unchanged. See the CSS comment at that rule and T-712.
+R-10.4 ("the renderer MUST NOT recompute any financial figure") is enforced structurally: this
+module never imports `decimal.Decimal` (T-700 greps for it). Every figure arrives as an
+already-rounded display string (`ChartRow`, built by `fina.render.prepare.to_chart_rows`); the
+only transforms here are presentation-only: pixel coordinates, thousands separators and a
+sign prefix on a display string, axis tick values, and a date written out in words.
 """
 
 from __future__ import annotations
 
 import html
 import json
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-_WIDTH = 960.0
-_HEIGHT = 420.0
-_PAD_LEFT = 64.0
-#: Reserved space (in the 960-wide viewBox) to the right of the plot for the end-of-line value
-#: labels. Widened from the original 104.0 (defect #3 in Q-J, `docs/plan/open-questions.md`):
-#: measured against real headless-browser output, 104.0 left under 1px of clearance to the
-#: card's own right edge for the `(cash_only)`-suffixed label that triggered the defect, and
-#: the underlying budget was already razor-thin even without that suffix -- any month with a
-#: larger `real_net_worth` (more digits) could still have overflowed it. 128.0 was chosen with
-#: real headroom verified against a synthetic worst-case figure well beyond any plausible
-#: personal net worth (a 9-digit euro amount with a minus sign, `"-999999999.99€"`) and
-#: re-checked at a 390px viewport in `tests/test_render_browser.py`.
-_PAD_RIGHT = 128.0
-_PAD_TOP = 28.0
-_PAD_BOTTOM = 40.0
+#: A phone-width canvas (CLAUDE.md rule 19): drawn at 390 units wide it maps ~1:1 onto a real
+#: 390px screen, so 11px text stays 11px instead of shrinking with a desktop-sized viewBox.
+_WIDTH = 390.0
+_HEIGHT = 250.0
+_PAD_LEFT = 12.0
+_PAD_RIGHT = 12.0
+#: Room above the top gridline for its own label, which sits just above its line.
+_PAD_TOP = 20.0
+_PAD_BOTTOM = 26.0
 _PLOT_WIDTH = _WIDTH - _PAD_LEFT - _PAD_RIGHT
 _PLOT_HEIGHT = _HEIGHT - _PAD_TOP - _PAD_BOTTOM
-_AXIS_TICKS = 5
+#: At most this many y-axis intervals and x-axis labels: more is unreadable at 390px.
+_MAX_Y_INTERVALS = 5
+_MAX_X_LABELS = 5
+_NICE_STEPS = (1.0, 2.0, 2.5, 5.0)
+_MONTH_STEPS = (1, 2, 3, 6, 12, 24, 60, 120)
+_MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+POSITIONS_AT_COST_NOTE = (
+    "Asset prices are not updated to today's value: investments are shown at what you paid "
+    "for them."
+)
 
 
 @dataclass(frozen=True)
@@ -101,6 +62,7 @@ class ChartRow:
     nothing left to compute except pixel positions and presentation-only string dressing.
     """
 
+    month: str  # "YYYY-MM"
     month_label: str
     as_of: str
     is_partial: bool
@@ -112,6 +74,9 @@ class ChartRow:
     savings_only_display: str
     gap_display: str
     savings_flow_display: str
+    positions_at_cost_display: str
+    estimated_display: str
+    opening_balances_display: str
 
 
 @dataclass(frozen=True)
@@ -136,33 +101,43 @@ def _y_scale(value: float, min_value: float, max_value: float) -> float:
     return _PAD_TOP + _PLOT_HEIGHT * (1 - fraction)
 
 
-def _padded_range(values: Sequence[float]) -> tuple[float, float]:
-    """The vertical value range both `_build_points` (line/band geometry) and the gridlines
-    share: padded by 10% of the span on each side so nothing touches the plot's top/bottom
-    edge, one shared definition so the two can never silently disagree on where "the top of
-    the chart" is.
-    """
-    min_value = min(values)
-    max_value = max(values)
-    pad = (max_value - min_value) * 0.1 or 1.0
-    return min_value - pad, max_value + pad
+def _nice_step(span: float) -> float:
+    """The smallest 1/2/2.5/5 × 10ⁿ step that splits `span` into at most `_MAX_Y_INTERVALS`
+    intervals -- round tick values a reader can take in at a glance."""
+    magnitude = 10.0 ** math.floor(math.log10(span / _MAX_Y_INTERVALS))
+    # 10 × magnitude always qualifies (magnitude ≥ span / (10 × intervals) by construction),
+    # so `next` always finds one.
+    return next(
+        factor * magnitude
+        for factor in (*_NICE_STEPS, 10.0)
+        if span / (factor * magnitude) <= _MAX_Y_INTERVALS
+    )
+
+
+def _axis_range(values: Sequence[float]) -> tuple[float, float, float]:
+    """`(min, max, step)` of the y axis: the data's range widened to whole steps, so every
+    gridline sits on a round value and the lines never touch the plot's edges. A flat series
+    gets a one-unit range around its value."""
+    low, high = min(values), max(values)
+    if high == low:
+        low, high = low - 1.0, high + 1.0
+    step = _nice_step(high - low)
+    return math.floor(low / step) * step, math.ceil(high / step) * step, step
 
 
 def _build_points(rows: Sequence[ChartRow]) -> list[_Point]:
     reals = [r.real_net_worth_position for r in rows]
     savings = [r.savings_only_position for r in rows]
-    min_value, max_value = _padded_range([*reals, *savings])
-    points: list[_Point] = []
-    for i, row in enumerate(rows):
-        points.append(
-            _Point(
-                x=_x_scale(i, len(rows)),
-                real_y=_y_scale(reals[i], min_value, max_value),
-                savings_y=_y_scale(savings[i], min_value, max_value),
-                gap_value=row.gap_position,
-            )
+    min_value, max_value, _step = _axis_range([*reals, *savings])
+    return [
+        _Point(
+            x=_x_scale(i, len(rows)),
+            real_y=_y_scale(reals[i], min_value, max_value),
+            savings_y=_y_scale(savings[i], min_value, max_value),
+            gap_value=row.gap_position,
         )
-    return points
+        for i, row in enumerate(rows)
+    ]
 
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -171,10 +146,8 @@ def _lerp(a: float, b: float, t: float) -> float:
 
 def _band_polygons(points: Sequence[_Point]) -> list[tuple[str, str]]:
     """Returns `(points_attr, css_class)` pairs, one per band segment. A segment whose two
-    endpoints disagree in the sign of `gap` is split into two polygons at the exact linear
+    endpoints disagree in the sign of the return is split into two polygons at the exact linear
     zero-crossing between them (R-10.2), not coloured by whichever endpoint is "closer".
-    `band-gain`/`band-loss` are the mock's own class names (Q-G) for what WP-9's original
-    design called `band-positive`/`band-negative`; the sign arithmetic is unchanged.
     """
     polygons: list[tuple[str, str]] = []
     for a, b in zip(points, points[1:], strict=False):
@@ -182,8 +155,8 @@ def _band_polygons(points: Sequence[_Point]) -> list[tuple[str, str]]:
             cls = "band-gain" if a.gap_value >= 0 else "band-loss"
             polygons.append((_quad(a.x, a.real_y, a.savings_y, b.x, b.real_y, b.savings_y), cls))
             continue
-        # Real zero-crossing: gap is linear between the two points (both real_net_worth and
-        # savings_only are piecewise-linear here), so the fraction where gap == 0 is exact.
+        # Real zero-crossing: the return is linear between the two points (both lines are
+        # piecewise-linear here), so the fraction where it is zero is exact.
         t = a.gap_value / (a.gap_value - b.gap_value)
         cx = _lerp(a.x, b.x, t)
         c_real_y = _lerp(a.real_y, b.real_y, t)
@@ -204,96 +177,165 @@ def _polyline(coords: Sequence[tuple[float, float]]) -> str:
 
 
 def _path_d(coords: Sequence[tuple[float, float]]) -> str:
-    """An SVG `<path>` `d` attribute (`"M x,y L x,y L ..."`), matching the mock's own use of
-    `<path>` rather than `<polyline>` for the two series lines. Built from `_polyline`'s
-    already-formatted coordinate string rather than a second formatting pass, so a path and a
-    polyline built from the same points can never drift apart in how a coordinate is rounded.
-    """
+    """An SVG `<path>` `d` attribute (`"M x,y L x,y L ..."`), built from `_polyline`'s
+    already-formatted coordinates so the two can never round a coordinate differently."""
     return "M " + _polyline(coords).replace(" ", " L ")
 
 
 def _format_eur(display: str) -> str:
-    return f"{display}€"
+    """`"-28121.57"` -> `"-28,121.57 €"`: thousands separators on an already-rounded display
+    string (a presentation transform, R-10.4 -- no number is parsed or recomputed)."""
+    sign = "-" if display.startswith("-") else ""
+    whole, _, cents = display.removeprefix("-").partition(".")
+    groups: list[str] = []
+    while len(whole) > 3:
+        groups.insert(0, whole[-3:])
+        whole = whole[:-3]
+    groups.insert(0, whole)
+    decimals = f".{cents}" if cents else ""
+    return f"{sign}{','.join(groups)}{decimals} €"
 
 
 def _signed_eur(display: str) -> str:
-    """The mock's headline gap figure carries an explicit sign (`"+215.000 €"` / `"−3.500
-    €"`) rather than relying on the reader to notice a bare minus. `display` (from
-    `round_half_up`) already carries its own `-` for a negative value, so only the
-    non-negative case needs a prefix added.
-    """
-    if display.startswith("-"):
-        return f"-{_format_eur(display[1:])}"
-    return f"+{_format_eur(display)}"
+    """A return always carries its sign (`"+11,437.82 €"` / `"-3,500.00 €"`): `display`
+    already carries its own `-`, so only the non-negative case gains a `+`."""
+    formatted = _format_eur(display)
+    return formatted if display.startswith("-") else f"+{formatted}"
 
 
-def _thousands_label(value: float) -> str:
-    """Y-axis tick label, ported from the mock's own `Math.round(v/1000)+"k"`."""
-    return f"{round(value / 1000)}k"
+def _is_zero(display: str) -> bool:
+    return set(display.removeprefix("-")) <= {"0", "."}
 
 
-def _grid_ticks(min_value: float, max_value: float) -> list[float]:
-    """`_AXIS_TICKS + 1` evenly spaced horizontal gridline values, matching the mock's own
-    5-gridline layout.
-    """
-    span = max_value - min_value
-    return [min_value + span * i / _AXIS_TICKS for i in range(_AXIS_TICKS + 1)]
+def _long_date(iso: str) -> str:
+    """`"2026-09-24"` -> `"24 Sep 2026"`."""
+    year, month, day = iso.split("-")
+    return f"{int(day)} {_MONTH_NAMES[int(month) - 1]} {year}"
+
+
+def _axis_label(value: float, step: float) -> str:
+    """Y-axis tick label: thousands as `k` once the step is at least 1,000 (`"25k"`,
+    `"2.5k"`), plain otherwise."""
+    if step >= 1000:
+        return f"{value / 1000:g}k"
+    return f"{value:g}"
+
+
+def _y_ticks(min_value: float, max_value: float, step: float) -> list[float]:
+    count = round((max_value - min_value) / step)
+    return [min_value + step * i for i in range(count + 1)]
+
+
+def _month_ordinal(month: str) -> int:
+    year, number = month.split("-")
+    return int(year) * 12 + int(number) - 1
+
+
+def _x_label_step(rows: Sequence[ChartRow]) -> int:
+    """The smallest month step (1, 2, 3, 6, 12... months) that keeps at most `_MAX_X_LABELS`
+    labels across the series."""
+    first, last = _month_ordinal(rows[0].month), _month_ordinal(rows[-1].month)
+    for step in _MONTH_STEPS:
+        if (last // step) - ((first - 1) // step) <= _MAX_X_LABELS:
+            return step
+    return _MONTH_STEPS[-1]
+
+
+def _x_label_text(month: str, step: int) -> str:
+    """A yearly (or longer) step labels the year alone; a shorter one the month too."""
+    year, number = month.split("-")
+    if step >= 12:
+        return year
+    return f"{_MONTH_NAMES[int(number) - 1]} {year[2:]}"
+
+
+#: A label centred on a point this close to either edge would be cut off by the screen edge.
+_EDGE_ZONE = 24.0
+
+
+def _x_anchor(x: float) -> str:
+    """Centred under its tick, except at the edges, where it grows inwards instead."""
+    if x < _PAD_LEFT + _EDGE_ZONE:
+        return "start"
+    if x > _WIDTH - _PAD_RIGHT - _EDGE_ZONE:
+        return "end"
+    return "middle"
+
+
+def _x_labels_svg(rows: Sequence[ChartRow], points: Sequence[_Point]) -> str:
+    step = _x_label_step(rows)
+    y = _HEIGHT - _PAD_BOTTOM
+    parts = [
+        f'<line class="x-tick" x1="{point.x:.2f}" x2="{point.x:.2f}" '
+        f'y1="{y:.2f}" y2="{y + 4:.2f}"></line>\n'
+        f'<text class="axis-label" x="{point.x:.2f}" y="{y + 18:.2f}" '
+        f'text-anchor="{_x_anchor(point.x)}">'
+        f"{html.escape(_x_label_text(row.month, step))}</text>"
+        for row, point in zip(rows, points, strict=True)
+        if _month_ordinal(row.month) % step == 0
+    ]
+    return "\n".join(parts)
+
+
+def _grid_svg(min_value: float, max_value: float, step: float) -> tuple[str, str]:
+    """`(gridlines, labels)`: the labels sit inside the plot, just above their line, and are
+    drawn after the data with a halo so a line crossing them never hides them."""
+    lines: list[str] = []
+    labels: list[str] = []
+    for value in _y_ticks(min_value, max_value, step):
+        y = _y_scale(value, min_value, max_value)
+        cls = "baseline" if value == min_value else "grid-line"
+        lines.append(
+            f'<line class="{cls}" x1="{_PAD_LEFT:.2f}" x2="{_WIDTH - _PAD_RIGHT:.2f}" '
+            f'y1="{y:.2f}" y2="{y:.2f}"></line>'
+        )
+        labels.append(
+            f'<text class="axis-label y-label" x="{_PAD_LEFT:.2f}" y="{y - 4:.2f}">'
+            f"{html.escape(_axis_label(value, step))}</text>"
+        )
+    return "\n".join(lines), "\n".join(labels)
 
 
 def _tooltip_rows(row: ChartRow) -> list[tuple[str, str]]:
-    """The tooltip's ordinary (non-gap) label/value rows, in display order.
-
-    Per Q-E's resolution (`docs/plan/open-questions.md`), this chart no longer appends R-9.4's
-    `cash_only` qualifier inline: the project owner decided portfolio-composition/completeness
-    caveats belong to a later, dedicated report section, not repeated on every figure in this
-    interim chart (see R-10.5, revised). `row.completeness` is still carried on `ChartRow` for
-    that future caller; this module simply never branches on it any more.
-    """
-    return [
-        ("Patrimonio real", _format_eur(row.real_net_worth_display)),
-        ("Solo ahorro", _format_eur(row.savings_only_display)),
-        ("Ahorro del mes", _format_eur(row.savings_flow_display)),
+    """The tooltip's ordinary label/value rows, in display order; the balances accounts
+    already held when their first statement starts (R-9.15) only in the month they arrive."""
+    rows = [
+        ("Net worth", _format_eur(row.real_net_worth_display)),
+        ("Total savings", _format_eur(row.savings_only_display)),
+        ("Saved this month", _format_eur(row.savings_flow_display)),
     ]
+    if not _is_zero(row.opening_balances_display):
+        rows.append(("Balances already held", _format_eur(row.opening_balances_display)))
+    return rows
 
 
 def _tooltip_html(row: ChartRow) -> str:
-    """The click-opened tooltip's inner markup (R-10.2): a close button, a month header (with
-    a "(parcial)" suffix per R-9.10 and an "a fecha de ..." line), one row per figure, and a
-    bordered-off gap row coloured by sign -- ported from the approved mock's own `showFor()`
-    (`docs/design/section1-approved-mock.html`), built server-side here from real `ChartRow`
-    data instead of the mock's hardcoded sample array (R-10.4: this module never computes a
-    new financial figure, only arranges already-computed ones).
-    """
+    """The click-opened tooltip's inner markup (R-10.2): a close button, the month (with
+    "(partial)" per R-9.10) and its as-of date, one row per figure, and the signed return row
+    coloured by sign."""
     month = html.escape(row.month_label)
     if row.is_partial:
-        month = f"{month} (parcial)"
-    as_of = html.escape(row.as_of)
+        month = f"{month} (partial)"
     rows_html = "".join(
         f'<div class="t-row"><span class="lab">{html.escape(label)}</span>'
         f"<span>{html.escape(value)}</span></div>"
         for label, value in _tooltip_rows(row)
     )
-    gap_class = "loss" if row.gap_display.startswith("-") else "gain"
-    gap_value = html.escape(_signed_eur(row.gap_display))
+    sign_class = "loss" if row.gap_display.startswith("-") else "gain"
     return (
-        '<button type="button" class="tooltip-close" aria-label="Cerrar">×</button>'
+        '<button type="button" class="tooltip-close" aria-label="Close">×</button>'
         f'<div class="t-month">{month}</div>'
-        f'<div class="t-asof">a fecha de {as_of}</div>'
+        f'<div class="t-asof">as of {html.escape(_long_date(row.as_of))}</div>'
         f"{rows_html}"
-        f'<div class="t-row t-gap {gap_class}"><span class="lab">Hueco</span>'
-        f"<span>{gap_value}</span></div>"
+        f'<div class="t-row t-return {sign_class}"><span class="lab">Total return</span>'
+        f"<span>{html.escape(_signed_eur(row.gap_display))}</span></div>"
     )
 
 
 def _points_payload(rows: Sequence[ChartRow], points: Sequence[_Point]) -> str:
     """The per-point data the page's own script needs to open the right tooltip at the right
-    position on click -- built once, server-side, from already-computed `ChartRow`/`_Point`
-    data (R-10.4), then embedded as a JSON array literal. `</script` is escaped so a
-    month label or display string can never prematurely close the surrounding `<script>` tag
-    (the classic script-injection gotcha: the HTML parser tokenizes `</script` before the JS
-    inside it is ever parsed, so this must happen regardless of `json.dumps`'s own, separate,
-    string-literal escaping).
-    """
+    position on click, embedded as a JSON array literal. `</` is escaped so no display string
+    can close the surrounding `<script>` tag early."""
     payload = [
         {
             "x": round(point.x, 2),
@@ -307,6 +349,33 @@ def _points_payload(rows: Sequence[ChartRow], points: Sequence[_Point]) -> str:
     return json.dumps(payload).replace("</", "<\\/")
 
 
+def _legend_html(last: ChartRow) -> str:
+    """The three figures, each with its latest value (the owner's labels, verbatim)."""
+    estimated = ""
+    if not _is_zero(last.estimated_display):
+        estimated = (
+            f'<span class="lg-extra">incl. {html.escape(_format_eur(last.estimated_display))} '
+            "estimated</span>"
+        )
+    sign_class = "loss" if last.gap_display.startswith("-") else "gain"
+    return (
+        '<div class="legend">\n'
+        '  <div class="legend-item"><span class="swatch"></span>'
+        '<span class="lg-name">Net worth <small>(cash and other assets)</small>'
+        f"{estimated}</span>"
+        f'<b class="lg-value">{html.escape(_format_eur(last.real_net_worth_display))}</b>'
+        "</div>\n"
+        '  <div class="legend-item"><span class="swatch dashed"></span>'
+        '<span class="lg-name">Total Savings <small>(cash contributions)</small></span>'
+        f'<b class="lg-value">{html.escape(_format_eur(last.savings_only_display))}</b>'
+        "</div>\n"
+        f'  <div class="legend-item {sign_class}"><span class="chip"></span>'
+        '<span class="lg-name">Total Return of Investments</span>'
+        f'<b class="lg-value">{html.escape(_signed_eur(last.gap_display))}</b></div>\n'
+        "</div>"
+    )
+
+
 def render_section1_chart(rows: Sequence[ChartRow]) -> str:
     """R-10.1: renders the Section 1 series as a standalone HTML/SVG document (no external
     assets), suitable for a headless browser to screenshot or export to PDF.
@@ -315,44 +384,20 @@ def render_section1_chart(rows: Sequence[ChartRow]) -> str:
         return _EMPTY_DOCUMENT
 
     points = _build_points(rows)
-    reals = [r.real_net_worth_position for r in rows]
-    savings = [r.savings_only_position for r in rows]
-    min_value, max_value = _padded_range([*reals, *savings])
-
+    min_value, max_value, step = _axis_range(
+        [*(r.real_net_worth_position for r in rows), *(r.savings_only_position for r in rows)]
+    )
+    grid_svg, y_labels_svg = _grid_svg(min_value, max_value, step)
     band_svg = "\n".join(
         f'<polygon class="{cls}" points="{pts}"></polygon>' for pts, cls in _band_polygons(points)
     )
-    ahorro_path = _path_d([(p.x, p.savings_y) for p in points])
-    real_path = _path_d([(p.x, p.real_y) for p in points])
-
-    ticks = _grid_ticks(min_value, max_value)
-    grid_svg = "\n".join(_grid_line_svg(value, min_value, max_value) for value in ticks)
-    baseline_y = _PAD_TOP + _PLOT_HEIGHT
-    grid_svg += (
-        f'\n<line class="baseline" x1="{_PAD_LEFT:.2f}" x2="{_WIDTH - _PAD_RIGHT:.2f}" '
-        f'y1="{baseline_y:.2f}" y2="{baseline_y:.2f}"></line>'
-    )
-
-    row_points = list(zip(rows, points, strict=True))
-    x_labels_svg = "\n".join(
-        _x_label_svg(row, point, i, len(rows)) for i, (row, point) in enumerate(row_points)
-    )
-
-    last_point = points[-1]
-    last_row = rows[-1]
-    # No `cash_only` suffix here either -- see `_tooltip_rows`'s docstring / Q-E's resolution.
-    real_end_label = _format_eur(last_row.real_net_worth_display)
-    label_x = last_point.x + 8
-    end_labels_svg = (
-        f'<text class="end-label real" x="{label_x:.2f}" y="{last_point.real_y + 4:.2f}">'
-        f"{html.escape(real_end_label)}</text>\n"
-        f'<text class="end-label ahorro" x="{label_x:.2f}" y="{last_point.savings_y + 4:.2f}">'
-        f"{html.escape(_format_eur(last_row.savings_only_display))}</text>"
-    )
-
-    points_payload = _points_payload(rows, points)
-    gap_headline = html.escape(_signed_eur(last_row.gap_display))
-    last_index = len(rows) - 1
+    last_row, last_point = rows[-1], points[-1]
+    date_line = f"Data up to {_long_date(last_row.as_of)}"
+    if last_row.is_partial:
+        date_line += " · month in progress"
+    note = ""
+    if not _is_zero(last_row.positions_at_cost_display):
+        note = f'<p class="note">{html.escape(POSITIONS_AT_COST_NOTE)}</p>'
 
     return _DOCUMENT_TEMPLATE.format(
         width=_WIDTH,
@@ -361,68 +406,51 @@ def render_section1_chart(rows: Sequence[ChartRow]) -> str:
         pad_top=_PAD_TOP,
         plot_width=_PLOT_WIDTH,
         plot_height=_PLOT_HEIGHT,
-        gap_headline=gap_headline,
+        date_line=html.escape(date_line),
+        legend_html=_legend_html(last_row),
         grid_svg=grid_svg,
-        x_labels_svg=x_labels_svg,
+        x_labels_svg=_x_labels_svg(rows, points),
         band_svg=band_svg,
-        ahorro_path=ahorro_path,
-        real_path=real_path,
-        end_labels_svg=end_labels_svg,
-        points_payload=points_payload,
-        last_index=last_index,
-    )
-
-
-def _grid_line_svg(value: float, min_value: float, max_value: float) -> str:
-    y = _y_scale(value, min_value, max_value)
-    label = html.escape(_thousands_label(value))
-    return (
-        f'<line class="grid-line" x1="{_PAD_LEFT:.2f}" x2="{_WIDTH - _PAD_RIGHT:.2f}" '
-        f'y1="{y:.2f}" y2="{y:.2f}"></line>\n'
-        f'<text class="axis-label" x="{_PAD_LEFT - 10:.2f}" y="{y + 4:.2f}" text-anchor="end">'
-        f"{label}</text>"
-    )
-
-
-def _x_label_svg(row: ChartRow, point: _Point, index: int, count: int) -> str:
-    """Every other month's label, plus always the last one, to avoid crowding at narrow
-    (mobile) widths -- ported from the mock's own `data.forEach` skip rule.
-    """
-    if index % 2 != 0 and index != count - 1:
-        return ""
-    label = html.escape(row.month_label)
-    return (
-        f'<text class="axis-label" x="{point.x:.2f}" y="{_HEIGHT - _PAD_BOTTOM + 18:.2f}" '
-        f'text-anchor="middle">{label}</text>'
+        savings_path=_path_d([(p.x, p.savings_y) for p in points]),
+        real_path=_path_d([(p.x, p.real_y) for p in points]),
+        y_labels_svg=y_labels_svg,
+        end_x=last_point.x,
+        end_real_y=last_point.real_y,
+        end_savings_y=last_point.savings_y,
+        note=note,
+        points_payload=_points_payload(rows, points),
+        last_index=len(rows) - 1,
     )
 
 
 _EMPTY_DOCUMENT = """<!doctype html>
-<html><head><meta charset="utf-8"><title>Section 1</title></head>
-<body><p>No hay datos para mostrar.</p></body></html>
+<html><head><meta charset="utf-8"><title>Net worth</title></head>
+<body><p>No data to show yet.</p></body></html>
 """
 
 _DOCUMENT_TEMPLATE = """<!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Puente patrimonial</title>
+<title>Net worth</title>
 <style>
 :root {{
+  /* The app's page background: the PWA manifest and icons reuse it (PWA-1.2a/1.3.3). */
   --page: #f6f5f1;
   --surface: #fcfcfb;
   --ink: #14140f;
   --ink-2: #55534a;
   --muted: #8b897f;
   --grid: #e3e1d7;
-  --border: rgba(11, 11, 11, 0.10);
+  --border: rgba(11, 11, 11, 0.12);
   --line-real: #2a78d6;
-  --line-ahorro: #8b897f;
+  --line-savings: #8b897f;
   --gain-fill: rgba(42, 120, 214, 0.14);
   --gain-line: #2a78d6;
   --loss-fill: rgba(227, 73, 72, 0.16);
   --loss-line: #e34948;
+  --warning: #9a6b12;
   --tooltip-bg: rgba(150, 148, 140, 0.24);
 }}
 @media (prefers-color-scheme: dark) {{
@@ -433,112 +461,90 @@ _DOCUMENT_TEMPLATE = """<!doctype html>
     --ink-2: #c3c2b7;
     --muted: #898781;
     --grid: #2c2c2a;
-    --border: rgba(255, 255, 255, 0.12);
+    --border: rgba(255, 255, 255, 0.14);
     --line-real: #3987e5;
-    --line-ahorro: #898781;
-    --gain-fill: rgba(57, 135, 229, 0.18);
+    --line-savings: #898781;
+    --gain-fill: rgba(57, 135, 229, 0.20);
     --gain-line: #3987e5;
-    --loss-fill: rgba(230, 103, 103, 0.20);
+    --loss-fill: rgba(230, 103, 103, 0.22);
     --loss-line: #e66767;
+    --warning: #d9a53f;
     --tooltip-bg: rgba(95, 93, 86, 0.34);
   }}
 }}
 * {{ box-sizing: border-box; }}
-html, body {{ margin: 0; padding: 0; background: var(--page); color: var(--ink); }}
+html, body {{ margin: 0; padding: 0; background: var(--surface); color: var(--ink); }}
 body {{
-  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  padding: 20px 14px 28px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: 14px 0 12px;
 }}
-.wrap {{ max-width: 980px; margin: 0 auto; }}
-.card {{
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 18px 16px;
+.head, .legend, .note {{ padding: 0 12px; }}
+h1 {{ font-size: 17px; line-height: 1.25; margin: 0; }}
+.sub {{ margin: 2px 0 8px; font-size: 12.5px; color: var(--ink-2); }}
+.legend {{
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.3;
 }}
-.eyebrow {{
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 11.5px;
-  letter-spacing: 0.09em;
-  color: var(--muted);
-  text-transform: uppercase;
-  margin-bottom: 6px;
+.legend-item {{ display: flex; align-items: center; gap: 8px; }}
+.lg-name {{ flex: 1 1 auto; min-width: 0; }}
+.lg-name small {{ font-size: 11.5px; color: var(--muted); }}
+.lg-extra {{ display: block; font-size: 11.5px; color: var(--muted); }}
+.lg-value {{ font-variant-numeric: tabular-nums; white-space: nowrap; }}
+.legend-item.gain .lg-value {{ color: var(--gain-line); }}
+.legend-item.loss .lg-value {{ color: var(--loss-line); }}
+.swatch {{ flex: 0 0 14px; height: 0; border-top: 2px solid var(--line-real); }}
+.swatch.dashed {{ border-top: 2px dashed var(--line-savings); }}
+.chip {{ flex: 0 0 14px; height: 9px; border-radius: 2px; }}
+.gain .chip {{ background: var(--gain-fill); border: 1px solid var(--gain-line); }}
+.loss .chip {{ background: var(--loss-fill); border: 1px solid var(--loss-line); }}
+.chart-area {{ position: relative; }}
+svg {{ width: 100%; height: auto; display: block; }}
+.axis-label {{ font-size: 11px; fill: var(--ink-2); font-variant-numeric: tabular-nums; }}
+.y-label {{
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }}
-h1 {{
-  font-family: "IBM Plex Serif", Georgia, serif;
-  font-weight: 600;
-  font-size: 22px;
-  line-height: 1.2;
-  margin: 0 0 4px;
-}}
-.sub {{ color: var(--ink-2); font-size: 14px; margin: 0; }}
-.sub b {{
-  font-family: "IBM Plex Mono", monospace;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  font-weight: 600;
-}}
-.chart-area {{ position: relative; margin-top: 16px; }}
-svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
-.axis-label {{ font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--muted); }}
 .grid-line {{ stroke: var(--grid); stroke-width: 1; }}
-.baseline {{ stroke: var(--muted); stroke-width: 1; }}
+.baseline, .x-tick {{ stroke: var(--muted); stroke-width: 1; }}
 .line-real {{
   fill: none;
   stroke: var(--line-real);
-  stroke-width: 2.25;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }}
-.line-ahorro {{
+.line-savings {{
   fill: none;
-  stroke: var(--line-ahorro);
-  stroke-width: 1.75;
+  stroke: var(--line-savings);
+  stroke-width: 2;
   stroke-dasharray: 5 4;
   stroke-linecap: round;
 }}
 .band-gain {{ fill: var(--gain-fill); }}
 .band-loss {{ fill: var(--loss-fill); }}
+.end-dot {{ stroke: var(--surface); stroke-width: 2; }}
+.end-dot.real, .dot-real {{ fill: var(--line-real); }}
+.end-dot.savings, .dot-savings {{ fill: var(--line-savings); }}
 .crosshair {{ stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0; }}
-.dot {{ r: 4; stroke: var(--surface); stroke-width: 1.5; opacity: 0; }}
-.dot-real {{ fill: var(--line-real); }}
-.dot-ahorro {{ fill: var(--line-ahorro); }}
+.dot {{ stroke: var(--surface); stroke-width: 1.5; opacity: 0; }}
 .hit-area {{
   fill: transparent;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }}
-/* Correction to the Q-J fix above (docs/plan/open-questions.md, appended entry): disabling
-   -webkit-tap-highlight-color was NOT sufficient on its own. A real touch tap still focuses
-   this element (it carries tabindex="0"), and Chromium's :focus-visible heuristic does not
-   always classify a touch-driven focus event as "focus-visible" -- when it doesn't, the
-   browser falls back to its own unstyled native focus ring (`outline: auto 5px`, rendered
-   orange on the platform this was caught on), which nothing below suppressed. The
-   `:focus-visible` rule must stay exactly as it is (it is what keeps a real Tab-key focus
-   visible); `:focus {{ outline: none; }}` only removes the browser's own default ring for
-   focus events that are not classified as keyboard-driven, per the standard
-   focus/focus-visible pairing pattern. See T-712 in tests/test_render_browser.py. */
+/* R-10.8 (Q-J correction): a touch tap focuses this element (tabindex="0") and Chromium does
+   not always classify that as :focus-visible, painting its own native ring instead. Plain
+   :focus loses the ring; :focus-visible keeps it for real keyboard use. See T-712. */
 .hit-area:focus {{ outline: none; }}
 .hit-area:focus-visible {{ outline: 2px solid var(--line-real); outline-offset: 2px; }}
-.end-label {{
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}}
-.end-label.real {{ fill: var(--line-real); font-weight: 600; }}
-.end-label.ahorro {{ fill: var(--ink-2); }}
-.legend {{
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-  font-size: 12.5px;
-  color: var(--ink-2);
-}}
-.legend-item {{ display: flex; align-items: center; gap: 7px; }}
-.swatch {{ width: 18px; height: 0; border-top-width: 2.5px; border-top-style: solid; }}
-.swatch.dashed {{ border-top-style: dashed; }}
+.note {{ margin: 6px 0 0; font-size: 12px; color: var(--warning); }}
 .tooltip {{
   position: absolute;
   pointer-events: none;
@@ -550,15 +556,10 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   opacity: 0;
   transition: opacity 0.08s ease;
-  /* Widened from the original 176px (defect #2 in Q-J, `docs/plan/open-questions.md`):
-     measured against real headless-browser output, 176px let the `.t-row` value column (`
-     white-space: nowrap`) overflow the tooltip box with no background behind the overflow,
-     visually colliding with the chart's own end-of-line labels. 230px was chosen with real
-     headroom verified against a synthetic worst-case tooltip (every row filled with a 9-digit
-     euro amount, a minus sign, and the longest label/month text this chart ever renders) --
-     see `tests/test_render_browser.py`'s G-9 containment test. Kept in sync with the script's
-     own `tipWidth` below; both must change together. */
-  max-width: 230px;
+  /* Kept in sync with the script's own tipWidth below (Q-J). 280px: a worst-case row --
+     "Balances already held" beside "-999,999,999.99 €" -- measured to fit (T-710). */
+  width: 280px;
+  max-width: calc(100% - 16px);
   z-index: 5;
 }}
 .tooltip.visible {{ pointer-events: auto; opacity: 1; }}
@@ -571,7 +572,6 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
   border: none;
   background: transparent;
   color: var(--muted);
-  font-family: "IBM Plex Sans", sans-serif;
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
@@ -581,7 +581,6 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
 }}
 .tooltip-close:hover {{ color: var(--ink); }}
 .tooltip .t-month {{
-  font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
   line-height: 1.3;
   letter-spacing: 0.05em;
@@ -600,60 +599,51 @@ svg {{ width: 100%; height: auto; display: block; overflow: visible; }}
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-family: "IBM Plex Mono", monospace;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   padding: 1.5px 0;
   white-space: nowrap;
 }}
-.tooltip .t-row .lab {{ font-family: "IBM Plex Sans", sans-serif; color: var(--ink-2); }}
-.tooltip .t-gap {{
+.tooltip .t-row .lab {{ color: var(--ink-2); }}
+.tooltip .t-return {{
   margin-top: 5px;
   padding-top: 5px;
   border-top: 1px solid var(--border);
   font-weight: 600;
 }}
-.tooltip .t-gap.gain span:last-child {{ color: var(--gain-line); }}
-.tooltip .t-gap.loss span:last-child {{ color: var(--loss-line); }}
+.tooltip .t-return.gain span:last-child {{ color: var(--gain-line); }}
+.tooltip .t-return.loss span:last-child {{ color: var(--loss-line); }}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="card">
-    <div class="eyebrow">Sección 1 · Informe mensual de patrimonio</div>
-    <h1>Patrimonio real vs. solo ahorro</h1>
-    <p class="sub">Hueco acumulado a cierre: <b>{gap_headline}</b></p>
-
-    <div class="chart-area">
-      <svg viewBox="0 0 {width:.0f} {height:.0f}" preserveAspectRatio="xMidYMid meet">
+<div class="head">
+  <h1>Net worth</h1>
+  <p class="sub">{date_line}</p>
+</div>
+{legend_html}
+<div class="chart-area">
+  <svg viewBox="0 0 {width:.0f} {height:.0f}" preserveAspectRatio="xMidYMid meet" \
+role="img" aria-label="Net worth and total savings by month">
 {grid_svg}
 {x_labels_svg}
-        <g class="band">
+    <g class="band">
 {band_svg}
-        </g>
-        <path class="line-ahorro" d="{ahorro_path}"></path>
-        <path class="line-real" d="{real_path}"></path>
-{end_labels_svg}
-        <line class="crosshair" y1="{pad_top:.2f}" y2="{pad_top:.2f}"></line>
-        <circle class="dot dot-ahorro" cx="0" cy="0"></circle>
-        <circle class="dot dot-real" cx="0" cy="0"></circle>
-        <rect class="hit-area" x="{pad_left:.2f}" y="{pad_top:.2f}" width="{plot_width:.2f}" \
+    </g>
+    <path class="line-savings" d="{savings_path}"></path>
+    <path class="line-real" d="{real_path}"></path>
+{y_labels_svg}
+    <circle class="end-dot savings" cx="{end_x:.2f}" cy="{end_savings_y:.2f}" r="4"></circle>
+    <circle class="end-dot real" cx="{end_x:.2f}" cy="{end_real_y:.2f}" r="4"></circle>
+    <line class="crosshair" y1="{pad_top:.2f}" y2="{pad_top:.2f}"></line>
+    <circle class="dot dot-savings" cx="0" cy="0" r="4"></circle>
+    <circle class="dot dot-real" cx="0" cy="0" r="4"></circle>
+    <rect class="hit-area" x="{pad_left:.2f}" y="{pad_top:.2f}" width="{plot_width:.2f}" \
 height="{plot_height:.2f}" tabindex="0" role="button" \
-aria-label="Ver el detalle de cada mes"></rect>
-      </svg>
-      <div class="tooltip" id="s1-tooltip" role="dialog" aria-live="polite"></div>
-    </div>
-
-    <div class="legend">
-      <div class="legend-item">\
-<span class="swatch" style="border-color: var(--line-real)"></span>\
-Patrimonio neto real</div>
-      <div class="legend-item">\
-<span class="swatch dashed" style="border-color: var(--line-ahorro)"></span>\
-Solo ahorro, sin invertir</div>
-    </div>
-  </div>
+aria-label="Show each month's detail"></rect>
+  </svg>
+  <div class="tooltip" id="s1-tooltip" role="dialog" aria-live="polite"></div>
 </div>
+{note}
 <script>
 (function () {{
   var points = {points_payload};
@@ -662,7 +652,7 @@ Solo ahorro, sin invertir</div>
   var hit = document.querySelector(".hit-area");
   var crosshair = document.querySelector(".crosshair");
   var dotReal = document.querySelector(".dot-real");
-  var dotAhorro = document.querySelector(".dot-ahorro");
+  var dotSavings = document.querySelector(".dot-savings");
   var tooltip = document.getElementById("s1-tooltip");
   var chartArea = document.querySelector(".chart-area");
   var selected = null;
@@ -671,13 +661,14 @@ Solo ahorro, sin invertir</div>
     var p = points[i];
     crosshair.setAttribute("x1", p.x);
     crosshair.setAttribute("x2", p.x);
+    crosshair.setAttribute("y2", {pad_top:.2f} + {plot_height:.2f});
     crosshair.style.opacity = 1;
     dotReal.setAttribute("cx", p.x);
     dotReal.setAttribute("cy", p.realY);
     dotReal.style.opacity = 1;
-    dotAhorro.setAttribute("cx", p.x);
-    dotAhorro.setAttribute("cy", p.savingsY);
-    dotAhorro.style.opacity = 1;
+    dotSavings.setAttribute("cx", p.x);
+    dotSavings.setAttribute("cy", p.savingsY);
+    dotSavings.style.opacity = 1;
 
     tooltip.innerHTML = p.tooltip;
     tooltip.querySelector(".tooltip-close").addEventListener("click", function (evt) {{
@@ -686,21 +677,21 @@ Solo ahorro, sin invertir</div>
     }});
 
     var frac = p.x / {width:.0f};
-    var tipWidth = 230; // must match .tooltip's max-width above (Q-J).
+    var tipWidth = Math.min(280, chartArea.clientWidth - 16); // .tooltip's width (Q-J).
     var left = frac * chartArea.clientWidth - tipWidth / 2;
-    left = Math.min(Math.max(left, 0), Math.max(chartArea.clientWidth - tipWidth, 0));
+    left = Math.min(Math.max(left, 8), Math.max(chartArea.clientWidth - tipWidth - 8, 0));
     tooltip.style.left = left + "px";
     tooltip.style.top = "6px";
     tooltip.classList.add("visible");
-    hit.setAttribute("aria-label", "Mes seleccionado: " + p.label);
+    hit.setAttribute("aria-label", "Selected month: " + p.label);
   }}
 
   function hideTooltip() {{
     crosshair.style.opacity = 0;
     dotReal.style.opacity = 0;
-    dotAhorro.style.opacity = 0;
+    dotSavings.style.opacity = 0;
     tooltip.classList.remove("visible");
-    hit.setAttribute("aria-label", "Ver el detalle de cada mes");
+    hit.setAttribute("aria-label", "Show each month's detail");
     selected = null;
   }}
 

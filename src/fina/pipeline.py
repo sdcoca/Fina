@@ -26,7 +26,7 @@ from fina.errors import ParseError
 from fina.io_utils import check_no_duplicate_file_contents, sha256_of_file
 from fina.models import AccountDeclaration, AdapterResult, LedgerEntry, Warning
 from fina.reconciliation import reconcile
-from fina.section1 import Section1Period, compute_section1
+from fina.section1 import Section1Period, compute_section1, cost_basis_warnings
 
 #: R-11.2: each adapter's (name, sniff, parse) -- tried in this fixed order so adapter
 #: selection is deterministic (R-1.20) even if two adapters could somehow both claim a file.
@@ -158,6 +158,7 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
     all_warnings.extend(reconcile(ledger, header_balances))
 
     series = compute_section1(ledger)
+    all_warnings.extend(cost_basis_warnings(ledger))
 
     result = PipelineResult(
         input_files=tuple(input_files),
@@ -232,9 +233,11 @@ def manifest_dict(result: PipelineResult) -> dict[str, object]:
                 "as_of": p.as_of.isoformat(),
                 "is_partial": p.is_partial,
                 "real_net_worth": str(p.real_net_worth),
+                "positions_at_cost": str(p.positions_at_cost),
                 "estimated_net_worth": str(p.estimated_net_worth),
                 "completeness": p.completeness,
                 "savings_flow": str(p.savings_flow),
+                "opening_balances": str(p.opening_balances),
                 "savings_only": str(p.savings_only),
                 "gap": str(p.gap),
             }

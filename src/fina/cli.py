@@ -39,6 +39,11 @@ def _build(input_dir: Path, out_dir: Path) -> int:
             f"real_net_worth ({latest.completeness}) as of {latest.as_of.isoformat()}"
             f"{as_of_note}: {round_half_up(latest.real_net_worth)} EUR"
         )
+        if latest.positions_at_cost != 0:
+            print(
+                "  of which investments at purchase cost (prices not updated): "
+                f"{round_half_up(latest.positions_at_cost)} EUR"
+            )
         if latest.estimated_net_worth != 0:
             print(
                 "  of which estimated (own accounts without a statement): "

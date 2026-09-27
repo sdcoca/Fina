@@ -396,7 +396,10 @@ by a change in inputs rather than appearing as an unexplained restatement.
 "decided_on"}]}` records the user's decision on accounts under their name for which no statement
 is supplied (adapter `own_accounts_json`, selected by shape like any other, R-11.2). Each
 `owned: true` yields an `AccountDeclaration` (R-2.8); each `owned: false` yields a normalized
-IBAN in `AdapterResult.not_owned` — still external, no longer warned (R-3.6). Malformed content,
+IBAN in `AdapterResult.not_owned` — still external, no longer warned (R-3.6). Version 2 adds
+an optional `"aliases": {"<IBAN, or institution for an account without one>": "<name>"}` map:
+names the owner gave their accounts, validated as non-empty strings and otherwise ignored by
+the engine (presentation only; version 1 files stay valid). Malformed content,
 a wrong `version`, or the same IBAN decided twice raises `ParseError` (row = 1-based position
 in `accounts`; 0 for the document itself). The run MUST output one **ownership candidate** per
 counterparty IBAN of a transfer-shaped entry that no statement in the run declares and that
@@ -638,8 +641,8 @@ case-insensitive, accent-insensitive matching:
 | 4 | `RECIBO ` | `EXPENSE` |
 | 5 | `LIQUIDACION PERIODICA PRESTAMO` | `EXPENSE` (see `technical-decisions.md` §2) |
 | 6 | `LIQUIDACION DE LAS TARJETAS DE CREDITO` | `EXPENSE` (see R-7.12) |
-| 7 | `TRANSFERENCIA (INMEDIATA )?DE (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT` (pre-classification); `name` → `counterparty_name` |
-| 8 | `TRANSFERENCIA (INMEDIATA )?A (?P<name>.+?)(,\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL` (pre-classification); `name` → `counterparty_name` |
+| 7 | `TRANSFERENCIA (INMEDIATA )?DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT` (pre-classification); `name` → `counterparty_name` |
+| 8 | `TRANSFERENCIA (INMEDIATA )?A (FAVOR DE )?(?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL` (pre-classification); `name` → `counterparty_name` |
 | 9 | `NOMINA` or `ABONO NOMINA` | `PAYROLL_INCOME` |
 | 10 | `DEVOLUCION BIZUM RECIBIDO DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT`; `name` → `counterparty_name` |
 | 11 | `BIZUM A FAVOR DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL`; `name` → `counterparty_name` |
@@ -650,7 +653,7 @@ party, not sender-editable free text -- same trust level as rule 7/8's ordinante
 a plain transfer, Bizum can never be internal: a phone number links to at most one account
 network-wide, so there is no owned-account collision to detect here; the name is captured
 only for R-1.10 traceability. The `CONCEPTO` suffix has no comma on real Bizum rows, unlike
-rules 7/8's transfers -- the comma is optional in rules 10-12.)*
+rules 7/8's transfers -- the comma is optional in rules 10-12.)* *(Revised 2026-09-26 on the owner's real export: rules 7/8 also take the comma-less `CONCEPTO` form, and rule 8 the longer "A FAVOR DE" wording; neither is part of the name.)*
 
 **R-7.11 (revised)** No match against rules 1-12 ⇒ classify by the amount's sign as a last
 resort: negative → `EXPENSE`, non-negative → `EXTERNAL_DEPOSIT` (`counterparty_name` stays
@@ -772,17 +775,16 @@ own tests, run in isolation, could see that the two disagreed once combined.)*
 ≤ t, e.movement_type is not TECHNICAL_ADJUSTMENT, e.quantity is not None }`.
 
 **R-9.3** `real_net_worth(t) = Σ cash_balance(·, t) + Σ quantity_held(·, t) ×
-close_price(asset, t)`. The second term is **D1**: no price feed exists.
+close_price(asset, t)`. The second term is **D1**: no price feed exists. Until it lands, the
+held units count at their FIFO purchase cost instead (R-9.14): `real_net_worth(t) = Σ
+cash_balance(·, t) + positions_at_cost(t)`.
 
-**R-9.4** Until D1 lands, the pipeline MUST emit `real_net_worth` (and every `Section1Period`)
-with an explicit `completeness` flag of `"cash_only"`, and MUST NOT present it as total net
-worth anywhere. Every CLI line and every report table that shows `real_net_worth` as a total
-MUST carry that qualifier inline (CLAUDE.md rule 11). **The Section 1 chart (§10) is the one
-exception to this inline-qualifier requirement**, governed instead by R-10.5 — see that rule
-and the Q-E resolution in `docs/plan/open-questions.md` for why, and note that the underlying
-data-model requirement in this rule's first sentence (the flag itself MUST always be emitted,
-never silently dropped) is unaffected: only the *display* duty this rule assigns is narrowed
-for that one view.
+**R-9.4 (revised)** Until D1 lands, every `Section1Period` carries `completeness ==
+"positions_at_cost"` and `positions_at_cost(t)`, and every view showing net worth MUST say, in
+words, that asset prices are not updated to today's value and investments are shown at what
+was paid for them. *(Revised 2026-09-26, owner's decision: the former `"cash_only"` rule valued
+held investments at 0 € while the statements show exactly what was paid for them, and the
+"cash only" label described that gap instead of closing it.)*
 
 **R-9.5** `savings_flow(month)` = `Σ contribution(e)` over entries dated within that
 calendar month, where:
@@ -803,7 +805,8 @@ break both the chart's x-axis and the recursion in R-9.8.)*
 **R-9.7** `t0` = the calendar month of the earliest entry in `M`. `savings_only(t0) =
 real_net_worth(t0)`.
 
-**R-9.8** `savings_only(t) = savings_only(t−1) + savings_flow(t)` for `t > t0`.
+**R-9.8** `savings_only(t) = savings_only(t−1) + savings_flow(t)` for `t > t0`, plus any
+`opening_balances(t)` (R-9.15).
 
 **R-9.9** `gap(t) = real_net_worth(t) − savings_only(t)`.
 
@@ -813,6 +816,26 @@ data; it MUST NOT be silently presented as a full month.
 
 **R-9.11** All Section 1 outputs are `Decimal`; rounding for display happens only per R-1.5
 at render time.
+
+**R-9.14 (open positions at cost)** `positions_at_cost(t)`: per `(institution, account,
+asset)`, walking every entry with a `quantity` in R-1.22 order through `t` (never
+`TECHNICAL_ADJUSTMENT`, R-2.5), an incoming quantity opens a lot costing `-cash_effect_eur`
+(fees included); an outgoing one consumes the oldest lots first (FIFO — also the Spanish tax
+rule for identical securities). A partly consumed lot gives up `cost × taken / lot quantity`
+rounded half-up to 6 decimals and keeps the exact remainder, so a lot consumed in full always
+releases exactly its cost. `positions_at_cost(t)` is the cost left in open lots. An outgoing
+quantity with no lot left to consume (its purchase predates the supplied files) is left out
+and emits one warning (`rule == "R-9.14"`) naming the row, the asset and the units.
+
+**R-9.15 (opening balances)** An account whose statements declare a running balance already
+held, before its first supplied movement, `opening = baseline.declared_balance − Σ
+cash_effect_eur of its entries up to and including its R-8.3 baseline`. In the month of that
+baseline's date (the first month `cash_balance` includes it), `opening` is added to
+`savings_only`: `savings_only(t) = savings_only(t−1) + savings_flow(t) + opening_balances(t)`,
+reported per period. The first month adds none: its seed (R-9.7) already holds them.
+*(rationale: owner's real data — a bank statement starting a month after the broker's showed
+155,903.36 € already in the account; without this rule that money entered net worth but not
+savings, and read as +155,903 € of investment return.)*
 
 **R-9.13** Each period reports `estimated_net_worth`: the part of `real_net_worth` held on
 `own_unverified` accounts (R-3.9), computed with the same per-account balance rule. It is
@@ -832,15 +855,24 @@ asserted to exact equality. Not implemented in this iteration.
 **R-10.1** The Section 1 chart is rendered as HTML/SVG and exported to PDF via a headless
 browser (decision 5.5, option B).
 
-**R-10.2** The chart's visual contract, validated against the approved mock:
+**R-10.2 (revised 2026-09-26, WP-22a — owner's mocks v2-v4)** The chart's visual contract:
 two series (`real net worth` solid, `savings only` dashed and muted); the band between them
 filled and coloured by the sign of `gap`, with the colour boundary placed at the exact
-linear zero-crossing between adjacent points; direct value labels at the final point; a
-month tooltip that opens **only on click**, is dismissible via its own close control or a
-click anywhere outside it, sized so its text does not wrap at a 390px viewport width, and
-translucent enough (plain alpha, no `backdrop-filter`) to read the chart line/band behind it
-— verified by rendering, not by reading the CSS; no legend entries for the band colours; no
-explanatory footer.
+linear zero-crossing between adjacent points; a legend above the plot naming the three figures
+with their latest value — "Net worth (cash and other assets)" (plus the estimated share when
+non-zero, R-9.13), "Total Savings (cash contributions)" and "Total Return of Investments"
+(`gap`, signed, with a chip in the band's colour); a heading "Net worth" with "Data up to
+<date>" (" · month in progress" when partial); a plot on a phone-width canvas (390 units wide)
+drawn edge to edge, y-axis labels inside the plot on round 1/2/2.5/5 × 10ⁿ steps (at most five
+intervals), and at most five x-axis labels (month steps of 1, 2, 3, 6, 12… months; the year
+alone for yearly steps); a month tooltip that opens **only on click**, is dismissible via its
+own close control or a click anywhere outside it, sized so its text does not wrap at a 390px
+viewport width, and translucent enough (plain alpha, no `backdrop-filter`) to read the chart
+line/band behind it — verified by rendering, not by reading the CSS. English throughout; the
+words "gap"/"hueco" never appear in displayed text. While `positions_at_cost` is non-zero, a
+note says "Asset prices are not updated to today's value: investments are shown at what you
+paid for them." (R-9.4). *(Supersedes the Spanish desktop-sized port of the original mock:
+the owner found it wasted a phone's width and was unreadable next to a PDF report.)*
 
 **R-10.2a (mobile-first verification)** The chart, and every other visual surface built
 under WP-9 or later, is designed and verified **primarily at a mobile viewport (~390px
@@ -860,15 +892,9 @@ only inside a media query or theme block.
 financial figure itself. *(rationale: two implementations of one formula is how two answers
 to one question appear.)*
 
-**R-10.5 (revised — Q-E resolution, `docs/plan/open-questions.md`)** This chart does **not**
-repeat the `cash_only` qualifier inline on any figure (end-of-line labels, tooltip rows, or any
-other on-chart text) — the project owner decided portfolio-composition and completeness
-caveats belong in a later, dedicated report section, not on every number in this interim
-working chart. `ChartRow.completeness` is still populated by every caller (a future caller,
-e.g. that dedicated section, needs it) but this chart's own renderer never branches on it to
-alter displayed text. This is a deliberate, narrower carve-out from R-9.4's general rule, not a
-repeal of it: any *other* surface presenting `real_net_worth` as a finished total (a CLI line,
-a report table) still MUST carry the qualifier per R-9.4 unchanged.
+**R-10.5 (revised again 2026-09-26)** The chart carries R-9.4's statement in words (the note in
+R-10.2) instead of a `cash_only`/`positions_at_cost` code on any figure; `ChartRow.completeness`
+is still populated but never printed.
 
 **R-10.6 (containment, added — Q-J, `docs/plan/open-questions.md`)** Every text-bearing element
 this chart renders — SVG text (grid/axis labels, end-of-line value labels) and tooltip text

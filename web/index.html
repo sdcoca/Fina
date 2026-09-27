@@ -30,67 +30,52 @@
 </div>
 
 <header class="app-header">
-  <h1>Fina</h1>
-  <p class="app-tagline">Wealth and tax tracking, computed on your device.</p>
+  <div class="app-title">
+    <h1>Fina</h1>
+    <p class="app-tagline">Wealth and tax tracking, computed on your device.</p>
+  </div>
   <!-- WP-14 (PWA-1.4a): hidden until a real `beforeinstallprompt` event fires (see
-       web/js/install.js) -- no service worker exists yet (WP-16), so that event does not fire
-       in this build; the button stays hidden and inert until then. -->
+       web/js/install.js). -->
   <button id="install-button" class="install-button" type="button" hidden>Install Fina</button>
+  <!-- WP-22b: settings behind one small icon (owner's decision, 2026-09-27) -- today only the
+       WP-17 backup (storage-eviction mitigation, docs/plan/mobile-pwa-shell.md 1.4b/2.4.3):
+       "Export backup" saves every stored file (active and inactive alike) as one zip;
+       "Restore from backup" feeds it back through the same sniff-before-run path a pick uses. -->
+  <details id="settings" class="settings">
+    <summary class="settings-toggle" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6a.5.5 0 0 0 .1-.6l-1.9-3.3a.5.5 0 0 0-.6-.2l-2.4 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.4 2.6a7.3 7.3 0 0 0-1.7 1l-2.4-1a.5.5 0 0 0-.6.2L2.5 8.8a.5.5 0 0 0 .1.6l2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6a.5.5 0 0 0-.1.6l1.9 3.3c.1.2.4.3.6.2l2.4-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.3.4.5.4h3.8c.2 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.4 1c.2.1.5 0 .6-.2l1.9-3.3a.5.5 0 0 0-.1-.6zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/>
+      </svg>
+    </summary>
+    <div id="backup-section" class="settings-panel">
+      <h2 id="backup-heading">Backup</h2>
+      <p class="backup-description">
+        Save every stored file as one archive you keep yourself, in case this device's storage
+        is ever cleared or evicted.
+      </p>
+      <button id="export-backup-button" class="backup-button" type="button">Export backup</button>
+      <div class="restore-controls">
+        <label for="restore-backup-input" class="file-input-label">Restore from backup</label>
+        <input type="file" id="restore-backup-input" accept=".zip">
+      </div>
+      <p id="backup-status" class="backup-status" role="status" aria-live="polite" hidden></p>
+    </div>
+  </details>
 </header>
 
 <main>
-  <section class="import-section" aria-labelledby="import-heading">
-    <h2 id="import-heading">Import statements</h2>
-    <!-- PWA-3.3a: the supported formats are named here, in the same place the Import action
-         lives, before the user ever tries a file -- not only after a rejection. -->
-    <p class="supported-formats">
-      Supported today: a Trade Republic CSV export, or a Spanish bank XLSX export.
-    </p>
+  <!-- The file picker itself: opened by the "Import" button in the Accounts header (WP-22b,
+       the owner's decision -- importing statements belongs with the accounts they declare) and
+       by an account's "Import its statement". -->
+  <input type="file" id="file-input" accept=".csv,.xlsx" multiple hidden>
 
-    <div class="import-controls">
-      <label for="file-input" class="file-input-label">Choose files</label>
-      <input type="file" id="file-input" accept=".csv,.xlsx" multiple>
-    </div>
+  <p id="busy-indicator" class="busy-indicator" role="status" aria-live="polite" hidden>
+    Processing…
+  </p>
 
-    <p id="busy-indicator" class="busy-indicator" role="status" aria-live="polite" hidden>
-      Processing…
-    </p>
-
-    <!-- PWA-3.3: rejected files are surfaced individually here; a rejection never removes an
-         already-recognized file from the same pick, and never aborts the run for the rest. -->
-    <div id="rejected-files" class="rejected-files" role="alert" hidden></div>
-  </section>
-
-  <!-- WP-15 (Q-M, "persistent library"): every file ever recognized and imported stays listed
-       here across sessions -- deduplicated by content hash, never re-picked to be included
-       again. Each row's checkbox is the sole control for `rawFiles.active` (§2.3's checklist
-       refinement): unchecking a file excludes it from the next run without deleting it. -->
-  <section id="stored-files-section" class="stored-files-section" aria-labelledby="stored-files-heading">
-    <h2 id="stored-files-heading">Stored files</h2>
-    <p id="stored-files-empty" class="stored-files-empty">No files stored yet.</p>
-    <ul id="stored-files-list" class="stored-files-list" hidden></ul>
-  </section>
-
-  <!-- WP-17: storage-eviction mitigation (required, not optional -- see docs/plan/
-       mobile-pwa-shell.md sections 1.4b/2.4.3). "Export backup" saves every stored file (active
-       and inactive alike) as a single zip a user can put wherever they choose on their own
-       device; "Restore from backup" feeds an exported archive back through the same
-       sniff-before-run path a fresh pick uses. -->
-  <section id="backup-section" class="backup-section" aria-labelledby="backup-heading">
-    <h2 id="backup-heading">Backup</h2>
-    <p class="backup-description">
-      Save every stored file as one archive you keep yourself, in case this device's storage is
-      ever cleared or evicted.
-    </p>
-    <button id="export-backup-button" class="backup-button" type="button">Export backup</button>
-
-    <div class="restore-controls">
-      <label for="restore-backup-input" class="file-input-label">Restore from backup</label>
-      <input type="file" id="restore-backup-input" accept=".zip">
-    </div>
-
-    <p id="backup-status" class="backup-status" role="status" aria-live="polite" hidden></p>
-  </section>
+  <!-- PWA-3.3: rejected files are surfaced individually here; a rejection never removes an
+       already-recognized file from the same pick, and never aborts the run for the rest. -->
+  <div id="rejected-files" class="rejected-files" role="alert" hidden></div>
 
   <section id="error-section" class="error-section" role="alert" hidden>
     <h2>Could not compute a report</h2>
@@ -99,20 +84,6 @@
 
   <section id="status-section" class="status-section" hidden>
     <div id="warnings" class="warnings" hidden></div>
-    <div id="summary" class="summary" hidden></div>
-  </section>
-
-  <!-- WP-19 (R-3.8): accounts in the user's name with no statement imported. Each "Mine" /
-       "Not mine" rewrites the stored confirmation file and re-runs (web/js/app.js). -->
-  <section id="own-accounts-section" class="own-accounts-section"
-           aria-labelledby="own-accounts-heading" hidden>
-    <h2 id="own-accounts-heading">Accounts in your name</h2>
-    <p class="own-accounts-description">
-      Transfers to or from these accounts carry your name, but no statement for them has been
-      imported. If one is yours, money moved to or from it stops counting as savings or
-      spending, and its balance is estimated until you import its statement.
-    </p>
-    <ul id="own-accounts-list" class="own-accounts-list"></ul>
   </section>
 
   <!-- PWA-5.2(a): the chart is embedded via a sandboxed <iframe srcdoc="...">, never
@@ -126,6 +97,30 @@
       sandbox="allow-scripts"
     ></iframe>
   </section>
+
+  <!-- WP-22b: every account, after the chart -- statement accounts with their own files (the
+       include checkbox per file lives here; the separate "Stored files" card is gone), then
+       accounts to confirm (R-3.8). Collapsed by default; after a file is loaded, the groups
+       that need attention open by themselves (web/js/accounts.js). -->
+  <details id="accounts-section" class="accounts-section">
+    <summary class="acc-summary">
+      <h2 id="accounts-heading">Accounts</h2>
+      <span id="accounts-attention" class="attn" hidden></span>
+      <button id="import-button" class="import-button" type="button"
+              title="A Trade Republic CSV export or a Spanish bank XLSX export">Import</button>
+    </summary>
+    <p class="accounts-description">
+      Transfers to or from some of these accounts carry your name, but no statement for them
+      has been imported. If you tag them as yours, money moved to or from them will be counted
+      as internal transfers. Their balance will be estimated until you import their statement.
+    </p>
+    <!-- PWA-3.3a: the supported formats are named where the import action lives. -->
+    <p id="accounts-empty" class="accounts-empty">
+      No files imported yet. Tap Import and pick a Trade Republic CSV export or a Spanish bank
+      XLSX export.
+    </p>
+    <div id="accounts-groups"></div>
+  </details>
 </main>
 
 <!-- Pyodide's own loader is not an ES module -- it must be a classic script, loaded before

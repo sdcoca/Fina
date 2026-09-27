@@ -41,6 +41,7 @@ from test_pwa_shell import (
     BROKER_CSV,
     FIXTURES_DIR,
     REPO_ROOT,
+    _expected_legend,
     _expected_summary_for,
     _pick_files,
     _summary_dd_texts,
@@ -115,13 +116,7 @@ def test_app_js_loads_and_full_flow_works_under_a_non_root_subpath(
                 f"error shown: {page.locator('#error-message').inner_text()!r}"
             )
             assert not page.locator("#chart-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected["as_of"],
-                expected["completeness"],
-                f"{expected['real_net_worth']} EUR",
-                f"{expected['savings_only']} EUR",
-                f"{expected['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected)
 
             screenshot_path = tmp_path / "subpath_deploy_390_light.png"
             page.screenshot(path=str(screenshot_path))

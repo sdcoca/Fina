@@ -53,6 +53,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Route
 from browser_support import launch_chromium
 from fina.money import round_half_up
 from fina.pipeline import run_pipeline
+from fina.render.section1_chart import _format_eur, _signed_eur
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO_ROOT / "web"
@@ -176,7 +177,9 @@ def _wait_for_settled(page: Page) -> None:
 
 
 def _summary_dd_texts(page: Page) -> list[str]:
-    return page.locator("#summary .summary-list dd").all_inner_texts()
+    """The three headline figures as shown -- since WP-22a they are the chart's own legend
+    (net worth, total savings, total return), not a separate summary card."""
+    return page.frame_locator("#chart-frame").locator(".legend .lg-value").all_inner_texts()
 
 
 def _expected_summary_for(input_dir: Path) -> dict[str, str]:
@@ -191,6 +194,25 @@ def _expected_summary_for(input_dir: Path) -> dict[str, str]:
     }
 
 
+def _expected_legend(expected: dict[str, str]) -> list[str]:
+    """`_expected_summary_for`'s figures as the chart legend prints them (the native
+    renderer's own formatting, so both sides format identically)."""
+    return [
+        _format_eur(expected["real_net_worth"]),
+        _format_eur(expected["savings_only"]),
+        _signed_eur(expected["gap"]),
+    ]
+
+
+def _open_accounts(page: Page) -> None:
+    """Opens the Accounts section and every group in it (collapsed by default, WP-22b) so a
+    test can reach a file's checkbox the way a user would after tapping them open."""
+    page.evaluate(
+        "() => document.querySelectorAll('#accounts-section, #accounts-section details')"
+        ".forEach((d) => { d.open = true; })"
+    )
+
+
 def _assert_chart_iframe_has_real_content(page: Page) -> None:
     """Confirms the chart `<iframe>` genuinely has the real chart document loaded inside it
     (not merely that the iframe element exists) -- the sandboxed iframe has no
@@ -198,7 +220,7 @@ def _assert_chart_iframe_has_real_content(page: Page) -> None:
     itself (CDP), not page-level JS subject to the same cross-origin restriction.
     """
     frame = page.frame_locator("#chart-frame")
-    assert frame.locator(".card h1").inner_text() == "Patrimonio real vs. solo ahorro"
+    assert frame.locator("h1").inner_text() == "Net worth"
     assert frame.locator(".hit-area").count() == 1
     assert frame.locator(".line-real").count() == 1
     # The tooltip-close/report-height script must have actually run inside the iframe (proof
@@ -228,21 +250,14 @@ def test_shell_end_to_end_both_fixtures_390px_light_and_dark(
             _wait_for_settled(page)
 
             assert page.locator("#error-section").is_hidden(), (
-                "error section shown for a run over two genuinely recognized, "
-                "reconciling fixtures"
+                "error section shown for a run over two genuinely recognized, reconciling fixtures"
             )
             assert page.locator("#rejected-files").is_hidden(), (
                 "no file in this pick should have been rejected"
             )
             assert not page.locator("#chart-section").is_hidden()
 
-            assert _summary_dd_texts(page) == [
-                expected["as_of"],
-                expected["completeness"],
-                f"{expected['real_net_worth']} EUR",
-                f"{expected['savings_only']} EUR",
-                f"{expected['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected)
 
             _assert_chart_iframe_has_real_content(page)
 
@@ -292,13 +307,7 @@ def test_mixed_pick_one_good_file_one_garbage_file_390px(tmp_path: Path, shell_s
                 "a garbage sibling file must never abort the run for the recognized file"
             )
             assert not page.locator("#chart-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected["as_of"],
-                expected["completeness"],
-                f"{expected['real_net_worth']} EUR",
-                f"{expected['savings_only']} EUR",
-                f"{expected['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected)
             _assert_chart_iframe_has_real_content(page)
 
             screenshot_path = tmp_path / "shell_mixed_pick_390_light.png"
@@ -330,13 +339,7 @@ def test_shell_end_to_end_desktop_after_mobile(tmp_path: Path, shell_server: str
 
             assert page.locator("#error-section").is_hidden()
             assert not page.locator("#chart-section").is_hidden()
-            assert _summary_dd_texts(page) == [
-                expected["as_of"],
-                expected["completeness"],
-                f"{expected['real_net_worth']} EUR",
-                f"{expected['savings_only']} EUR",
-                f"{expected['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(expected)
             _assert_chart_iframe_has_real_content(page)
 
             screenshot_path = tmp_path / "shell_both_fixtures_desktop_light.png"

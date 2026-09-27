@@ -1,7 +1,7 @@
 """Section 1: the net-worth bridge (spec section 9).
 
-Implements: R-9.1..R-9.11, R-9.13. R-9.12 (the per-asset FIFO cross-check) is D2, not
-implemented in this iteration.
+Implements: R-9.1..R-9.11, R-9.13..R-9.15. R-9.12 (the per-asset realized/unrealized P&L
+cross-check) is D2, not implemented in this iteration.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import calendar
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date as _date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from fina.models import (
@@ -18,13 +18,19 @@ from fina.models import (
     SAVINGS_FLOW_ELIGIBLE_TYPES,
     LedgerEntry,
     MovementType,
+    Warning,
 )
 from fina.reconciliation import anchor_at, sort_key
 
-#: R-9.3/R-9.4: no price feed exists yet (D1), so `real_net_worth` is cash-only. Every period
-#: this module emits carries this same literal completeness flag until D1 lands.
-Completeness = Literal["cash_only"]
-_CASH_ONLY: Completeness = "cash_only"
+#: R-9.3/R-9.4: no price feed exists yet (D1), so open positions are valued at their FIFO
+#: purchase cost (R-9.14), not at today's price. Every period carries this flag until D1 lands.
+Completeness = Literal["positions_at_cost"]
+_POSITIONS_AT_COST: Completeness = "positions_at_cost"
+
+#: R-9.14: a partly consumed lot's cost is split at the ledger's own precision (6 decimals, as
+#: the broker's amounts); the lot keeps the exact remainder, so a lot consumed in full always
+#: releases exactly what it cost.
+_COST_QUANTUM = Decimal("0.000001")
 
 #: R-9.5's `<D3>` branch: these two types can never actually reach `contribution` through a
 #: constructed `LedgerEntry` (its own `__post_init__` already refuses to construct one), but
@@ -41,11 +47,17 @@ class Section1Period:
     as_of: _date
     is_partial: bool
     real_net_worth: Decimal
+    #: R-9.14: the part of `real_net_worth` that is open positions valued at purchase cost.
+    positions_at_cost: Decimal
     #: R-9.13: the part of `real_net_worth` held in own accounts with no statement (R-3.9
     #: mirrors, `status="estimated"`) -- estimated, not measured (CLAUDE.md rule 11).
     estimated_net_worth: Decimal
     completeness: Completeness
     savings_flow: Decimal
+    #: R-9.15: balances accounts already held when their first statement starts, counted as
+    #: savings the owner already had in the month they enter the series (0 in the first month,
+    #: whose opening net worth seeds `savings_only` itself, R-9.7).
+    opening_balances: Decimal
     savings_only: Decimal
     gap: Decimal
 
@@ -117,9 +129,76 @@ def quantity_held(
     )
 
 
+def _open_lots(
+    entries: Sequence[LedgerEntry], as_of: _date
+) -> tuple[dict[tuple[str, str, str], list[list[Decimal]]], list[tuple[LedgerEntry, Decimal]]]:
+    """R-9.14: FIFO lots `[quantity, cost]` per `(institution, account, asset)` through `as_of`,
+    plus every entry that removed more units than the supplied history holds (with the
+    unmatched quantity). An incoming quantity costs what left the cash for it (`-cash_effect`,
+    fees included); an outgoing one consumes the oldest lots first. `TECHNICAL_ADJUSTMENT` rows
+    never move holdings (R-2.5)."""
+    lots: dict[tuple[str, str, str], list[list[Decimal]]] = {}
+    unmatched: list[tuple[LedgerEntry, Decimal]] = []
+    moves = [
+        (e, quantity, asset)
+        for e in entries
+        if (quantity := e.quantity) is not None
+        and (asset := e.asset) is not None
+        and e.movement_type is not MovementType.TECHNICAL_ADJUSTMENT
+        and e.date <= as_of
+    ]
+    for e, quantity, asset in sorted(moves, key=lambda move: sort_key(move[0])):
+        queue = lots.setdefault((e.institution, e.account, asset), [])
+        if quantity > 0:
+            queue.append([quantity, -e.cash_effect_eur])
+            continue
+        remaining = -quantity
+        while remaining > 0 and queue:
+            lot_quantity, lot_cost = queue[0]
+            if lot_quantity <= remaining:
+                remaining -= lot_quantity
+                queue.pop(0)
+                continue
+            taken = (lot_cost * remaining / lot_quantity).quantize(_COST_QUANTUM, ROUND_HALF_UP)
+            queue[0] = [lot_quantity - remaining, lot_cost - taken]
+            remaining = Decimal("0")
+        if remaining > 0:
+            unmatched.append((e, remaining))
+    return lots, unmatched
+
+
+def positions_at_cost(entries: Sequence[LedgerEntry], as_of: _date) -> Decimal:
+    """R-9.14: every open position at `as_of`, valued at the FIFO cost of the units still
+    held -- what was paid for them, not what they are worth today (D1: no price feed)."""
+    lots, _unmatched = _open_lots(entries, as_of)
+    return sum((cost for queue in lots.values() for _quantity, cost in queue), start=Decimal("0"))
+
+
+def cost_basis_warnings(entries: Sequence[LedgerEntry]) -> tuple[Warning, ...]:
+    """R-9.14: one warning per entry that sold or redeemed more units than the supplied
+    history ever bought -- their cost is unknown, so they are left out of the valuation."""
+    if not entries:
+        return ()
+    _lots, unmatched = _open_lots(entries, max(e.date for e in entries))
+    return tuple(
+        Warning(
+            message=(
+                f"{e.source_file}:{e.source_row}: {e.asset} -- {quantity} units leave the "
+                "account but no earlier purchase of them is in the supplied files, so their "
+                "cost is unknown; import the older statement that bought them"
+            ),
+            source_file=e.source_file,
+            source_row=e.source_row,
+            rule="R-9.14",
+        )
+        for e, quantity in unmatched
+    )
+
+
 def real_net_worth(entries: Sequence[LedgerEntry], as_of: _date) -> Decimal:
     """R-9.3/R-9.4: `Σ cash_balance(·, t)` over every distinct `(institution, account)` pair
-    present in `entries`. This MUST delegate to `cash_balance` per group rather than flatten
+    present in `entries`, plus open positions at purchase cost (`positions_at_cost`, R-9.14).
+    The cash part MUST delegate to `cash_balance` per group rather than flatten
     `entries` into one raw sum: once any group is anchored to a non-zero R-8.3 baseline
     (R-9.1), summing every entry's own `cash_effect_eur` from zero across *all* groups no
     longer agrees with summing each group's own anchored balance and adding the groups
@@ -128,17 +207,41 @@ def real_net_worth(entries: Sequence[LedgerEntry], as_of: _date) -> Decimal:
     itself deterministic per R-1.20), never a `set`, so iteration order never leaks into the
     result -- moot here since `Decimal` addition is exact and order-independent, but kept
     consistent with this module's own convention (`reconciliation._group_by_account`).
-    The `quantity_held × close_price` term is D1 (no price feed exists) and is never added;
-    callers MUST treat this figure as cash-only (`completeness == "cash_only"`), never as
-    total net worth (R-9.4).
+    The `quantity_held × close_price` term is D1 (no price feed exists): until it lands, held
+    units count at what was paid for them (R-9.4, revised), flagged
+    `completeness == "positions_at_cost"`.
     """
     accounts: dict[tuple[str, str], None] = {}
     for e in entries:
         accounts.setdefault((e.institution, e.account), None)
     return sum(
         (cash_balance(entries, institution, account, as_of) for institution, account in accounts),
-        start=Decimal("0"),
+        start=positions_at_cost(entries, as_of),
     )
+
+
+def opening_balances(
+    entries: Sequence[LedgerEntry],
+) -> dict[tuple[str, str], tuple[_date, Decimal]]:
+    """R-9.15: per `(institution, account)` whose statements declare a running balance, the
+    balance it already held before its first supplied movement, and the date from which the
+    series counts it (its R-8.3 baseline entry's date, the first date `cash_balance` includes
+    it). Its baseline's declared balance minus every movement up to and including it."""
+    groups: dict[tuple[str, str], list[LedgerEntry]] = {}
+    for e in entries:
+        groups.setdefault((e.institution, e.account), []).append(e)
+    out: dict[tuple[str, str], tuple[_date, Decimal]] = {}
+    for key, group in groups.items():
+        ordered = sorted(group, key=sort_key)
+        baseline = next((e for e in ordered if e.declared_balance is not None), None)
+        if baseline is None or baseline.declared_balance is None:
+            continue
+        moved = sum(
+            (e.cash_effect_eur for e in ordered if sort_key(e) <= sort_key(baseline)),
+            start=Decimal("0"),
+        )
+        out[key] = (baseline.date, baseline.declared_balance - moved)
+    return out
 
 
 def estimated_net_worth(entries: Sequence[LedgerEntry], as_of: _date) -> Decimal:
@@ -223,6 +326,7 @@ def compute_section1(entries: Sequence[LedgerEntry]) -> tuple[Section1Period, ..
     earliest, latest = min(dates), max(dates)
     months = _months_from((earliest.year, earliest.month), (latest.year, latest.month))
 
+    openings = opening_balances(entries).values()
     periods: list[Section1Period] = []
     previous_savings_only: Decimal | None = None
     for index, (year, month) in enumerate(months):
@@ -235,9 +339,18 @@ def compute_section1(entries: Sequence[LedgerEntry]) -> tuple[Section1Period, ..
 
         rnw = real_net_worth(entries, as_of)
         flow = savings_flow(entries, year, month)
+        # R-9.15: accounts entering the series this month bring the balance they already
+        # held -- savings from before the supplied history, never a return. The first month's
+        # are already inside its seed (R-9.7), so they are not added twice.
+        opening = Decimal("0")
+        if previous_savings_only is not None:
+            opening = sum(
+                (b for d, b in openings if (d.year, d.month) == (year, month)),
+                start=Decimal("0"),
+            )
         # R-9.7 (t0 seeds savings_only from real_net_worth itself) / R-9.8 (the recursion
         # for every later period) are the same assignment, branching only on which applies.
-        so = rnw if previous_savings_only is None else previous_savings_only + flow
+        so = rnw if previous_savings_only is None else previous_savings_only + flow + opening
         previous_savings_only = so
 
         periods.append(
@@ -246,9 +359,11 @@ def compute_section1(entries: Sequence[LedgerEntry]) -> tuple[Section1Period, ..
                 as_of=as_of,
                 is_partial=is_partial,
                 real_net_worth=rnw,
+                positions_at_cost=positions_at_cost(entries, as_of),
                 estimated_net_worth=estimated_net_worth(entries, as_of),
-                completeness=_CASH_ONLY,
+                completeness=_POSITIONS_AT_COST,
                 savings_flow=flow,
+                opening_balances=opening,
                 savings_only=so,
                 gap=rnw - so,  # R-9.9.
             )

@@ -61,7 +61,7 @@
  * specificity or source order -- so `.foo[hidden]` can silently keep rendering whenever `.foo`
  * itself declares `display`. This single rule makes `hidden` win unconditionally, for every
  * element in this file now and later; it also retroactively fixes the same latent defect on
- * `.status-section`/`.stored-files-list` below (both pre-existing, both only invisible today by
+ * `.status-section` below (pre-existing, only invisible today by
  * accident, because they happen to render no visible content while hidden). */
 [hidden] {
   display: none !important;
@@ -78,21 +78,32 @@ body {
 body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.4;
-  /* Side gutter kept at every width -- never zeroed by a later shorthand rule. */
-  padding: 16px 16px 32px;
+  /* Side gutter kept at every width -- never zeroed by a later shorthand rule. 8px (WP-22b,
+   * owner's feedback: wider frames wasted a phone's width). */
+  padding: 12px 8px 32px;
 }
 
 main {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   max-width: 640px;
   margin: 0 auto;
 }
 
 .app-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   max-width: 640px;
-  margin: 0 auto 4px;
+  margin: 0 auto 10px;
+  padding: 0 4px;
+}
+
+.app-title {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .app-header h1 {
@@ -109,7 +120,7 @@ main {
 /* WP-14 (PWA-1.4a): hidden by default -- shown only once a real `beforeinstallprompt` event
  * fires (see web/js/install.js). Plain solid fill, no backdrop-filter (rule 20). */
 .install-button {
-  margin-top: 10px;
+  margin-top: 2px;
   padding: 8px 14px;
   font-size: 13.5px;
   font-weight: 600;
@@ -122,6 +133,47 @@ main {
 
 .install-button:active {
   opacity: 0.85;
+}
+
+/* WP-22b: settings behind one icon; the panel opens over the page, below the header. */
+.settings,
+.install-button {
+  flex: 0 0 auto;
+}
+
+.settings-toggle {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  color: var(--shell-ink-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.settings[open] > .settings-toggle {
+  background: var(--shell-accent-bg);
+  color: var(--shell-accent);
+}
+
+.settings-panel {
+  position: absolute;
+  z-index: 10;
+  top: 48px;
+  left: 0;
+  right: 0;
+  padding: 14px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }
 
 /* WP-16 (PWA-4.4): the "update available -- reload to apply" prompt, hidden by default (see
@@ -174,24 +226,12 @@ section {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
   border-radius: 10px;
-  padding: 16px;
+  padding: 12px;
 }
 
 h2 {
   font-size: 15px;
   margin: 0 0 8px;
-}
-
-.supported-formats {
-  margin: 0 0 14px;
-  color: var(--shell-ink-2);
-  font-size: 13.5px;
-}
-
-.import-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .file-input-label {
@@ -200,27 +240,13 @@ h2 {
   color: var(--shell-ink-2);
 }
 
-#file-input {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  font-size: 14px;
-  color: var(--shell-ink);
-  padding: 4px 0;
-}
-
-#file-input:disabled {
-  opacity: 0.6;
-}
-
 .busy-indicator {
-  margin: 12px 0 0;
+  margin: 0 4px;
   font-size: 13px;
   color: var(--shell-ink-2);
 }
 
 .rejected-files {
-  margin-top: 14px;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--shell-danger-bg);
@@ -245,38 +271,21 @@ h2 {
   word-break: break-word;
 }
 
-/* WP-15: the stored-files (rawFiles) active/inactive checklist. Deliberately plain -- this
- * WP's job is correctness of persistence, not visual polish -- but still usable and gutter-safe
- * at 390px (rule 19): each row is a flex line that wraps rather than truncating illegibly, the
- * checkbox has a real tap target, and the filename can wrap onto a second line instead of
- * overflowing the card at a phone width. */
-.stored-files-empty {
-  margin: 0;
-  color: var(--shell-muted);
-  font-size: 13.5px;
-}
-
-.stored-files-list {
+/* WP-15/WP-22b: one stored file, inside its account's card (or "Other files"). The whole row
+ * is one <label>, a bigger tap target than the 18px checkbox alone (rule 19); the filename
+ * wraps instead of overflowing at a phone width. */
+.files {
   list-style: none;
-  margin: 0;
+  margin: 8px 0 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  border-top: 1px solid var(--shell-border);
 }
 
-.stored-files-list li {
-  border: 1px solid var(--shell-border);
-  border-radius: 8px;
-}
-
-/* The whole row is one <label>, not just the checkbox -- a larger tap target than the 18px
- * checkbox alone, which matters at a real phone width (rule 19). */
 .stored-file-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 7px 0 0;
   cursor: pointer;
 }
 
@@ -297,7 +306,7 @@ h2 {
 }
 
 .stored-file-name {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   word-break: break-word;
 }
@@ -412,42 +421,146 @@ h2 {
   color: var(--shell-warning);
 }
 
-.summary {
-  padding: 14px 16px;
-  border-radius: 10px;
+/* WP-22b: the Accounts section -- a <details> card whose groups are <details> too, collapsed
+ * by default. Plain alpha backgrounds only, no backdrop-filter (rule 20). */
+.accounts-section {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  padding: 0 12px;
 }
 
-.summary-list {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 12px;
+.import-button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 4px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--shell-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.import-button:active {
+  opacity: 0.85;
+}
+
+.import-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.accounts-section[open] {
+  padding-bottom: 14px;
+}
+
+.acc-summary,
+.group-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acc-summary::-webkit-details-marker,
+.group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.acc-summary {
+  padding: 14px 0;
+}
+
+.accounts-section[open] > .acc-summary {
+  padding-bottom: 6px;
+}
+
+.acc-summary h2 {
   margin: 0;
-  font-size: 14px;
+  flex: 1 1 auto;
 }
 
-.summary-list dt {
-  color: var(--shell-ink-2);
-  font-weight: 500;
+.acc-summary::after,
+.group-summary::after {
+  content: "\203A";
+  font-size: 20px;
+  line-height: 1;
+  color: var(--shell-muted);
+  transform: rotate(0deg);
+  transition: transform 0.12s ease;
 }
 
-.summary-list dd {
-  margin: 0;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.accounts-section[open] > .acc-summary::after,
+.acc-group[open] > .group-summary::after {
+  transform: rotate(90deg);
 }
 
-/* WP-19 (R-3.8): "Accounts in your name". One card per account; pending ones carry a warning
- * edge, and a confirmed account missing data (unseen income, R-3.9) a highlighted note. Plain
- * alpha backgrounds only, no backdrop-filter (rule 20). */
-.own-accounts-description {
-  margin: 0 0 12px;
+.attn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--shell-warning);
+  background: var(--shell-warning-bg);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.accounts-description {
+  margin: 0 0 10px;
   color: var(--shell-ink-2);
   font-size: 13.5px;
 }
 
-.own-accounts-list {
+.accounts-empty {
+  margin: 0 0 4px;
+  color: var(--shell-muted);
+  font-size: 13.5px;
+}
+
+.acc-group {
+  border-top: 1px solid var(--shell-border);
+}
+
+.acc-group[open] {
+  padding-bottom: 12px;
+}
+
+.group-summary {
+  padding: 11px 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--shell-ink-2);
+}
+
+.group-label {
+  flex: 1 1 auto;
+}
+
+.count {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--shell-muted);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--shell-warning);
+}
+
+.group-note {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  color: var(--shell-muted);
+}
+
+.accounts-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -456,11 +569,69 @@ h2 {
   gap: 10px;
 }
 
-.own-account {
+.account {
   padding: 10px 12px;
   border: 1px solid var(--shell-border);
   border-radius: 8px;
   font-size: 13.5px;
+}
+
+.account p {
+  margin: 0 0 3px;
+  word-break: break-word;
+}
+
+.account-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.account-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.account-alias {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.account-sub {
+  font-size: 12.5px;
+  color: var(--shell-ink-2);
+}
+
+.iban {
+  white-space: nowrap;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--shell-ink-2);
+}
+
+.badge {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge--statement {
+  background: var(--shell-accent-bg);
+  color: var(--shell-accent);
+}
+
+.badge--pending,
+.badge--estimated {
+  background: var(--shell-warning-bg);
+  color: var(--shell-warning);
+}
+
+.badge--not-yours {
+  background: var(--shell-border);
+  color: var(--shell-ink-2);
 }
 
 .own-account--pending {
@@ -471,19 +642,8 @@ h2 {
   color: var(--shell-ink-2);
 }
 
-.own-account p {
-  margin: 0 0 3px;
-  word-break: break-word;
-}
-
-.own-account-name {
-  font-weight: 600;
-}
-
-.own-account-iban {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  color: var(--shell-ink-2);
+.nowrap {
+  white-space: nowrap;
 }
 
 .own-account-meta {
@@ -492,12 +652,14 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
-.own-account-balance {
+.account .balance,
+.account .own-account-balance {
+  margin-top: 4px;
   font-variant-numeric: tabular-nums;
 }
 
-.own-account-missing {
-  margin-top: 6px !important;
+.account .own-account-missing {
+  margin-top: 6px;
   padding: 6px 8px;
   border-radius: 6px;
   background: var(--shell-warning-bg);
@@ -514,12 +676,39 @@ h2 {
 }
 
 .own-account-status {
+  flex: 1 0 100%;
   font-size: 13px;
   color: var(--shell-ink-2);
-  margin-right: auto;
 }
 
-.own-account-button {
+.acc-rename {
+  border: none;
+  background: transparent;
+  color: var(--shell-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+}
+
+.alias-edit {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.alias-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--shell-accent);
+  background: var(--shell-page);
+  color: var(--shell-ink);
+}
+
+.acc-button {
   min-height: 36px;
   padding: 6px 14px;
   font-size: 13.5px;
@@ -531,31 +720,36 @@ h2 {
   background: transparent;
 }
 
-.own-account-button--mine {
+.acc-button--primary {
   color: #ffffff;
   background: var(--shell-accent);
 }
 
-.own-account-button--change {
+.acc-button--small {
   min-height: 30px;
   padding: 4px 12px;
   font-size: 13px;
 }
 
-.own-account-button:active {
+.acc-button:active {
   opacity: 0.85;
 }
 
-.own-account-button:disabled {
+.acc-button:disabled,
+.acc-rename:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
+/* WP-22a/WP-22b: the chart sits in a card like every other one (owner's feedback), with no
+ * inner padding: the chart document keeps its own 12px text gutter and draws the plot edge to
+ * edge inside the card. */
 .chart-section {
-  padding: 8px;
+  padding: 0;
+  overflow: hidden;
 }
 
-/* PWA-5.3: a fixed-aspect-ratio first-paint fallback (960x420, the chart SVG's own viewBox
+/* PWA-5.3: a fixed-aspect-ratio first-paint fallback (390x520, roughly the whole chart document
  * ratio) shown until the chart document's own height-reporting script (see app.js) posts its
  * real rendered height back -- at which point app.js sets an inline `height` that overrides
  * this ratio (an explicit height always wins over `aspect-ratio` per spec once both are
@@ -566,9 +760,9 @@ h2 {
 .chart-frame {
   display: block;
   width: 100%;
-  aspect-ratio: 960 / 420;
+  aspect-ratio: 390 / 520;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--shell-surface);
   transition: height 0.12s ease, opacity 0.12s ease;
   /* Starts invisible (see app.js's showChart/message handler): the fallback aspect-ratio box

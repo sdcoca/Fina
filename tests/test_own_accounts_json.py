@@ -73,6 +73,16 @@ def test_not_owned_decision_goes_to_not_owned_normalized(tmp_path: Path) -> None
     assert result.not_owned == ("ES0000000000000000000203",)
 
 
+@pytest.mark.parametrize("version", [1, 2])
+def test_both_versions_are_read_and_aliases_change_no_declaration(
+    tmp_path: Path, version: int
+) -> None:
+    extra = {"aliases": {"ES0000000000000000000202": "Nómina", "trade_republic": "Broker"}}
+    path = write_confirmations(tmp_path, [decision()], version=version, **extra)
+    result = own_accounts_json.parse(path)
+    assert [a.iban_or_account for a in result.accounts] == ["ES0000000000000000000202"]
+
+
 def test_empty_file_declares_nothing(tmp_path: Path) -> None:
     result = own_accounts_json.parse(write_confirmations(tmp_path, []))
     assert (result.accounts, result.not_owned) == ((), ())
@@ -85,7 +95,12 @@ def error_fields(err: ParseError) -> tuple[str, int, str, str, str]:
 @pytest.mark.parametrize(
     ("top", "column", "raw", "expected"),
     [
-        ({"version": 2}, "version", "2", "version 1"),
+        ({"version": 3}, "version", "3", "version 1 or 2"),
+        ({"version": "2"}, "version", '"2"', "version 1 or 2"),
+        ({"aliases": ["x"]}, "aliases", '["x"]', "an object of non-empty names"),
+        ({"aliases": {"ES00": " "}}, "aliases", '{"ES00": " "}', "an object of non-empty names"),
+        ({"aliases": {" ": "Ahorro"}}, "aliases", '{" ": "Ahorro"}', "an object of non-empty names"),
+        ({"aliases": {"ES00": 5}}, "aliases", '{"ES00": 5}', "an object of non-empty names"),
         ({"accounts": {"x": "ñ"}}, "accounts", '{"x": "ñ"}', "a list of account decisions"),
     ],
 )

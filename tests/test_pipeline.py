@@ -239,9 +239,11 @@ def test_t507_manifest_contains_every_required_field(tmp_path: Path) -> None:
             "as_of",
             "is_partial",
             "real_net_worth",
+            "positions_at_cost",
             "estimated_net_worth",
             "completeness",
             "savings_flow",
+            "opening_balances",
             "savings_only",
             "gap",
         }
@@ -258,9 +260,11 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
         as_of=date(2027, 3, 31),
         is_partial=False,
         real_net_worth=Decimal("111.11"),
+        positions_at_cost=Decimal("666.66"),
         estimated_net_worth=Decimal("555.55"),
-        completeness="cash_only",
+        completeness="positions_at_cost",
         savings_flow=Decimal("444.44"),
+        opening_balances=Decimal("777.77"),
         savings_only=Decimal("222.22"),
         gap=Decimal("333.33"),
     )
@@ -279,6 +283,8 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
     assert entry["savings_only"] == "222.22"
     assert entry["gap"] == "333.33"
     assert entry["savings_flow"] == "444.44"
+    assert entry["positions_at_cost"] == "666.66"
+    assert entry["opening_balances"] == "777.77"
 
 
 def test_manifest_is_json_serializable() -> None:
@@ -354,3 +360,23 @@ def test_sniff_adapter_name_agrees_with_select_adapter_on_an_unrecognized_file(
     assert sniff_adapter_name(garbage) is None
     with pytest.raises(ParseError):
         _select_adapter(garbage)
+
+
+def test_run_pipeline_checks_cost_basis_over_the_whole_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-9.14's warnings are computed over the final ledger (classified entries plus R-3.9
+    mirrors) and reach `PipelineResult.warnings`."""
+    import fina.pipeline as pipeline_module
+    from fina.models import Warning
+
+    seen: list[object] = []
+
+    def spy(entries: object) -> tuple[Warning, ...]:
+        seen.append(entries)
+        return (Warning(message="spy", rule="R-9.14"),)
+
+    monkeypatch.setattr(pipeline_module, "cost_basis_warnings", spy)
+    result = run_pipeline(_copy_both_fixtures(tmp_path))
+    assert seen == [result.entries]
+    assert Warning(message="spy", rule="R-9.14") in result.warnings

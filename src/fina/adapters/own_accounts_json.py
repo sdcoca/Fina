@@ -9,8 +9,13 @@ as amended).
 
 Shape::
 
-    {"format": "fina-own-accounts", "version": 1,
-     "accounts": [{"iban": "...", "holder_name": "...", "owned": true, "decided_on": "YYYY-MM-DD"}]}
+    {"format": "fina-own-accounts", "version": 2,
+     "accounts": [{"iban": "...", "holder_name": "...", "owned": true, "decided_on": "YYYY-MM-DD"}],
+     "aliases": {"<IBAN, or institution for an account without one>": "<name the user gave it>"}}
+
+Version 2 (WP-22b) adds the optional ``aliases`` map; version 1 files stay valid. Aliases are
+presentation only: validated here (a malformed file must fail loudly, R-1.24) and otherwise
+ignored by the engine -- the app reads them to label its account cards.
 """
 
 from __future__ import annotations
@@ -25,7 +30,9 @@ from fina.models import USER_CONFIRMED_INSTITUTION, AccountDeclaration, AdapterR
 from fina.money import normalize_iban
 
 FORMAT = "fina-own-accounts"
-VERSION = 1
+VERSION = 2
+#: Every version this adapter still reads.
+VERSIONS = (1, 2)
 
 
 def _load(file_path: Path) -> Any:
@@ -63,8 +70,14 @@ def parse(file_path: Path) -> AdapterResult:
     (row 0 is the document itself: format, version, or ``accounts`` not being a list)."""
     source_file = file_path.name
     data = _load(file_path)
-    if data.get("version") != VERSION:
-        raise _fail(source_file, 0, "version", data.get("version"), f"version {VERSION}")
+    if data.get("version") not in VERSIONS:
+        raise _fail(source_file, 0, "version", data.get("version"), "version 1 or 2")
+    aliases = data.get("aliases", {})
+    if not isinstance(aliases, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
+        for k, v in aliases.items()
+    ):
+        raise _fail(source_file, 0, "aliases", aliases, "an object of non-empty names")
     items = data.get("accounts")
     if not isinstance(items, list):
         raise _fail(source_file, 0, "accounts", items, "a list of account decisions")

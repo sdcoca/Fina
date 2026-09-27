@@ -173,14 +173,38 @@ export async function listRawFiles() {
   const store = tx.objectStore(STORE_RAW_FILES);
   const all = await _promisifyRequest(store.getAll());
   await _txDone(tx);
-  return all.map(({ id, filename, recognizedAs, active, importedAt, size }) => ({
+  return all.map(({ id, filename, recognizedAs, active, importedAt, size, account }) => ({
     id,
     filename,
     recognizedAs,
     active,
     importedAt,
     size,
+    account: account ?? null,
   }));
+}
+
+/**
+ * WP-22b: remembers which account each stored file belongs to, as the last successful run
+ * found it (`accountsByFilename`: filename -> `{key, institution, iban, holder_name}`), so a
+ * file the user later excludes from runs still shows inside its own account. Records whose
+ * filename is not in the map are left untouched.
+ *
+ * @param {Object<string, object>} accountsByFilename
+ * @returns {Promise<void>}
+ */
+export async function setFileAccounts(accountsByFilename) {
+  const db = await _openDb();
+  const tx = db.transaction([STORE_RAW_FILES], "readwrite");
+  const store = tx.objectStore(STORE_RAW_FILES);
+  const all = await _promisifyRequest(store.getAll());
+  for (const record of all) {
+    const account = accountsByFilename[record.filename];
+    if (account !== undefined) {
+      store.put({ ...record, account });
+    }
+  }
+  await _txDone(tx);
 }
 
 /**
@@ -256,6 +280,7 @@ export async function getAllFilesWithBytes() {
       filename: record.filename,
       recognizedAs: record.recognizedAs,
       active: record.active,
+      importedAt: record.importedAt,
       bytes: new Uint8Array(buf),
     });
   }
@@ -276,8 +301,8 @@ export const OWN_ACCOUNTS_ADAPTER = "own_accounts_json";
 export const OWN_ACCOUNTS_FILENAME = "cuentas-propias.json";
 
 /**
- * Every stored confirmation file, with bytes -- normally one; more only after a backup restore
- * brought in another version (see `app.js`'s `consolidateOwnAccounts`).
+ * Every stored confirmation file, with bytes, oldest first -- normally one; more only after a
+ * backup restore brought in another version (see `app.js`'s `consolidateOwnAccounts`).
  *
  * @returns {Promise<Array<{id: string, active: boolean, bytes: Uint8Array}>>}
  */
@@ -285,6 +310,7 @@ export async function getOwnAccountsFiles() {
   const all = await getAllFilesWithBytes();
   return all
     .filter((f) => f.recognizedAs === OWN_ACCOUNTS_ADAPTER)
+    .sort((a, b) => (a.importedAt < b.importedAt ? -1 : a.importedAt > b.importedAt ? 1 : 0))
     .map(({ id, active, bytes }) => ({ id, active, bytes }));
 }
 

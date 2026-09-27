@@ -281,7 +281,7 @@ check. No source change was needed; the test's assertion style was the gap. This
 
 ### `cli.py` — 3 documented equivalents
 
-*(Renumbered by WP-19a to `x__build__mutmut_35`, `x__build__mutmut_37`, `x__build__mutmut_42`: the new "of which estimated"
+*(Renumbered by WP-19a to `x__build__mutmut_35`, `x__build__mutmut_37`, `x__build__mutmut_42`, and by WP-21 to `x__build__mutmut_41`, `x__build__mutmut_43`, `x__build__mutmut_48`: the new "of which estimated"
 line shifted `_build`'s mutant numbering; same three diffs, same reasoning.)*
 
 | Mutant ID | Diff | Justification |
@@ -668,3 +668,20 @@ Owner's real Santander export: header 1,126.84 € vs last listed movement 1,131
 payment not listed yet) blocked the whole report. `reconcile` now returns the R-8.5 warnings.
 `mutmut run`: 3208 mutants, 45 survivors + 1 timeout, all already documented above; every
 mutant of the new warning (exact message, fields, `rule`, the loop's `continue`) is killed.
+
+
+## WP-21/WP-22a (`section1.py` — positions at cost, opening balances; `render/section1_chart.py` — redesign)
+
+First run: 31 new survivors. Killed by tests: the CLI's "investments at purchase cost" line,
+the pipeline passing its whole ledger to `cost_basis_warnings`, FIFO edge cases (a
+zero-quantity row, a whole lot sold with more than 6 decimals of cost, half-up splitting, a
+fully matched sale, less than one unmatched unit), y ticks from a non-zero minimum and the empty
+note slot. Two `or`-fallbacks in `_open_lots` were replaced by walrus narrowing, and the chart's
+sign/zero helpers by `removeprefix`/set checks, so no unreachable fallback is left to mutate.
+
+| Mutant | Change | Why it survives |
+|---|---|---|
+| `fina.section1.x__open_lots__mutmut_30`, `_31` | `while remaining > 0 and queue` → `or` / `>= 0` | **Timeout, not a survivor**: both loop forever once the queue empties; counted as caught. |
+| `fina.section1.x_opening_balances__mutmut_26` | `sum(..., start=Decimal("0"))` → no `start` | **Equivalent.** The summed range always contains the baseline entry itself, so the sum is never empty: `0 + Decimal` is the same `Decimal` the explicit start gives. |
+| `fina.render.section1_chart.x__x_label_step__mutmut_9` | `(first - 1) // step` → `/ step` | **Equivalent.** The label count `L//s − (F−1)//s` is an integer n; the float version is n − f with 0 ≤ f < 1, so `≤ 5` holds for both or for neither. |
+| `fina.render.section1_chart.x__x_labels_svg__mutmut_18`, `_21`, `_22` | `zip(rows, points, strict=True)` → `strict=None` / omitted / `False` | **Equivalent** — `points` is built one per row (`_build_points`), so the lengths always match; same reasoning as the chart's other `zip(..., strict=...)` survivors above. |

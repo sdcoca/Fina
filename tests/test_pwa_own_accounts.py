@@ -1,16 +1,18 @@
-"""Real-browser verification for WP-19b: the "Accounts in your name" section (R-3.8/R-3.9).
+"""Real-browser verification for WP-19b/WP-22b: the "Accounts" section (R-3.8/R-3.9).
 
 Same house pattern as `tests/test_pwa_storage.py`: the real `web/` tree over a local server,
 headless Chromium at a real phone width (CLAUDE.md rule 19), every off-origin request blocked.
 
-1. `test_deciding_an_account_rewrites_the_confirmation_file_and_recomputes` -- one narrative:
-   the broker fixture alone lists its one pending account (not as a warning); "Mine" writes the
-   confirmation file, re-runs, and shows the estimate and the missing-data note with the same
-   figures the native CLI computes over the same files; a reload shows it from the cache;
-   "Change" -> "Not mine" rewrites the same single file. No horizontal scroll at 390px, in
-   light and dark themes.
-2. `test_confirmation_file_merge_keeps_the_latest_decision_per_account` -- `own-accounts.js`'s
-   pure helpers, as a backup restore uses them.
+1. `test_accounts_section_decide_rename_and_files` -- one narrative: loading the broker
+   fixture alone opens the Accounts section on its own (one account needs a decision) with the
+   statement account's group closed; the pending account is listed there, not as a warning;
+   "Mine" writes the confirmation file, re-runs, and shows the estimate and the missing-data
+   note with the figures the native CLI computes (read from the chart legend); renaming the
+   statement account stores the name in the same file and shows it; its file sits inside it; a
+   reload shows everything from the cache, collapsed; "Change" -> "Not mine" rewrites the same
+   single file. No horizontal scroll at 390px, in light and dark themes.
+2. `test_confirmation_file_helpers` -- `own-accounts.js`'s pure helpers, as decisions,
+   renames and a backup restore use them.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from fina.pipeline import run_pipeline
 from test_pwa_shell import (
     _MOBILE_VIEWPORT,
     BROKER_CSV,
+    _expected_legend,
     _open_shell_page,
     _pick_files,
     _summary_dd_texts,
@@ -39,7 +42,8 @@ from test_pwa_storage import _run_seq, _wait_for_next_run
 
 _GENEROUS_TIMEOUT_MS = 180_000
 _IBAN = "ES0000000000000000000202"
-_CARD = f'#own-accounts-list li[data-iban="{_IBAN}"]'
+_CARD = f'#accounts-groups li[data-iban="{_IBAN}"]'
+_BROKER_CARD = '#accounts-groups li[data-account-key="trade_republic"]'
 
 _OWN_ACCOUNTS_FILES_JS = """
 async () => {
@@ -47,6 +51,11 @@ async () => {
   const files = await s.getOwnAccountsFiles();
   return files.map((f) => new TextDecoder().decode(f.bytes));
 }
+"""
+
+_OPEN_GROUPS_JS = """
+() => [...document.querySelectorAll('#accounts-groups details')]
+  .filter((d) => d.open).map((d) => d.dataset.group)
 """
 
 
@@ -76,6 +85,10 @@ def _native_with_decision(tmp_path: Path, owned: bool) -> dict[str, Any]:
     }
 
 
+def _open(page: Page, group: str) -> None:
+    page.locator(f'#accounts-groups details[data-group="{group}"] > summary').click()
+
+
 def _assert_no_horizontal_scroll(page: Page) -> None:
     width = page.evaluate("document.documentElement.scrollWidth")
     assert width <= _MOBILE_VIEWPORT["width"], width
@@ -89,7 +102,7 @@ def _click_and_wait(page: Page, selector: str) -> None:
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
-def test_deciding_an_account_rewrites_the_confirmation_file_and_recomputes(
+def test_accounts_section_decide_rename_and_files(
     tmp_path: Path,
     shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
     color_scheme: str,
@@ -105,17 +118,23 @@ def test_deciding_an_account_rewrites_the_confirmation_file_and_recomputes(
         page.set_default_timeout(_GENEROUS_TIMEOUT_MS)
         try:
             page.wait_for_function("window.__finaChecklistReady === true")
+            # Nothing imported yet: the section is open on the way to start.
+            assert page.locator("#accounts-section").evaluate("(d) => d.open")
+            assert not page.locator("#accounts-empty").is_hidden()
+
             _pick_files(page, [BROKER_CSV])
             _wait_for_settled(page)
 
-            # Pending: listed in its own section, not among the warnings.
+            # A file was loaded and one account needs a decision: the section and that group
+            # open by themselves, the statement account's group stays closed.
+            assert page.locator("#accounts-section").evaluate("(d) => d.open")
+            assert page.evaluate(_OPEN_GROUPS_JS) == ["pending"]
+            assert page.locator("#accounts-attention").inner_text() == "1 needs attention"
             card = page.locator(_CARD)
-            assert card.get_attribute("class") == "own-account own-account--pending"
-            assert card.locator(".own-account-iban").inner_text() == (
-                "ES00 0000 0000 0000 0000 0202"
-            )
+            assert card.get_attribute("class") == "account own-account own-account--pending"
+            assert card.locator(".iban").inner_text() == "ES00 0000 0000 0000 0000 0202"
             assert card.locator(".own-account-meta").inner_text() == (
-                "4 transfers · in 25000.00 EUR · out 80.00 EUR · 2023-03-10 – 2023-10-10"
+                "4 transfers · in 25,000.00 € · out 80.00 € · 2023-03-10 – 2023-10-10"
             )
             assert _IBAN not in page.locator("#status-section").inner_text()
             _assert_no_horizontal_scroll(page)
@@ -123,57 +142,77 @@ def test_deciding_an_account_rewrites_the_confirmation_file_and_recomputes(
 
             # "Mine": one confirmation file written, figures as the native run computes them.
             _click_and_wait(page, f"{_CARD} .own-account-button--mine")
+            assert page.evaluate(_OPEN_GROUPS_JS) == ["owned"]
             card = page.locator(_CARD)
             assert card.locator(".own-account-status").inner_text() == "Marked as yours"
-            assert (
-                card.locator(".own-account-balance")
-                .inner_text()
-                .startswith("Estimated balance: 80.00 EUR")
+            assert card.locator(".own-account-balance").inner_text() == (
+                "Estimated balance: 80.00 €"
             )
             assert (
                 card.locator(".own-account-missing")
                 .inner_text()
-                .startswith("Missing data: at least 25000.00 EUR")
+                .startswith("Missing data: at least 25,000.00 €")
             )
-            assert _summary_dd_texts(page)[2:] == [
-                f"{owned['real_net_worth']} EUR",
-                f"{owned['estimated']} EUR",
-                f"{owned['savings_only']} EUR",
-                f"{owned['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(owned)
+            legend = page.frame_locator("#chart-frame").locator(".legend").inner_text()
+            assert "incl. 80.00 € estimated" in legend
             (stored,) = page.evaluate(_OWN_ACCOUNTS_FILES_JS)
             (decision,) = json.loads(stored)["accounts"]
             assert (decision["iban"], decision["owned"]) == (_IBAN, True)
             assert decision["holder_name"] == "FERNANDEZ ORTIZ LUCIA"
-            names = page.locator("#stored-files-list .stored-file-name").all_inner_texts()
-            assert sorted(names) == sorted([BROKER_CSV.name, "cuentas-propias.json"])
+
+            # The statement account holds its own file; the confirmation file is not listed.
+            _open(page, "statement")
+            broker = page.locator(_BROKER_CARD)
+            assert broker.locator(".account-alias").inner_text() == "Trade Republic"
+            assert broker.locator(".stored-file-name").all_inner_texts() == [BROKER_CSV.name]
+            assert broker.locator(".balance").inner_text() == (
+                f"Balance: {_expected_legend(not_owned)[0]}"
+            )
+            names = page.locator("#accounts-groups .stored-file-name").all_inner_texts()
+            assert names == [BROKER_CSV.name]
+
+            # Rename: stored in the confirmation file, shown on the card after the re-run.
+            broker.locator(".acc-rename").click()
+            broker.locator(".alias-input").fill("Broker")
+            seq = _run_seq(page)
+            broker.locator(".alias-input").press("Enter")
+            _wait_for_next_run(page, seq)
+            assert page.locator(f"{_BROKER_CARD} .account-alias").inner_text() == "Broker"
+            (stored,) = page.evaluate(_OWN_ACCOUNTS_FILES_JS)
+            assert json.loads(stored)["aliases"] == {"trade_republic": "Broker"}
             _assert_no_horizontal_scroll(page)
             page.screenshot(path=str(tmp_path / f"owned_{color_scheme}.png"), full_page=True)
 
-            # Reload: the decision and its figures come back from the cache.
+            # Reload: everything comes back from the cache, collapsed (no file was loaded).
             page.goto(f"{shell_server}/index.html")
             page.wait_for_function("window.__finaChecklistReady === true")
             _wait_for_settled(page)
-            assert page.locator(f"{_CARD} .own-account-status").inner_text() == ("Marked as yours")
+            assert not page.locator("#accounts-section").evaluate("(d) => d.open")
+            assert page.locator("#accounts-attention").inner_text() == "1 needs attention"
+            page.locator("#accounts-section > summary h2").click()
+            _open(page, "owned")
+            assert page.locator(f"{_CARD} .own-account-status").inner_text() == "Marked as yours"
 
-            # "Change" -> "Not mine": the same single file, rewritten.
+            # "Change" -> "Not mine": the same single file, rewritten; the name is kept.
             page.locator(f"{_CARD} .own-account-button--change").click()
             _click_and_wait(page, f"{_CARD} .own-account-button--not-mine")
+            # The group the account moved to opens, so the card just decided stays in view.
+            assert "not_owned" in page.evaluate(_OPEN_GROUPS_JS)
             card = page.locator(_CARD)
-            assert card.locator(".own-account-status").inner_text() == "Marked as not yours"
+            assert card.locator(".own-account-status").inner_text() == (
+                "Counted as money from outside"
+            )
             assert card.locator(".own-account-missing").count() == 0
-            assert _summary_dd_texts(page)[2:] == [
-                f"{not_owned['real_net_worth']} EUR",
-                f"{not_owned['savings_only']} EUR",
-                f"{not_owned['gap']} EUR",
-            ]
+            assert _summary_dd_texts(page) == _expected_legend(not_owned)
             (stored,) = page.evaluate(_OWN_ACCOUNTS_FILES_JS)
             assert json.loads(stored)["accounts"][0]["owned"] is False
+            assert json.loads(stored)["aliases"] == {"trade_republic": "Broker"}
         finally:
             context.close()
 
 
-def test_confirmation_file_merge_keeps_the_latest_decision_per_account(
+def test_confirmation_file_helpers(
     shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
 ) -> None:
     with launch_chromium() as browser:
@@ -186,17 +225,26 @@ def test_confirmation_file_merge_keeps_the_latest_decision_per_account(
                   const m = await import('/js/own-accounts.js');
                   const a = (iban, owned, day) =>
                     ({iban, holder_name: 'X', owned, decided_on: `2026-09-${day}`});
-                  const merged = m.mergeDecisions([
-                    [a('A', true, '20'), a('B', true, '25')],
-                    [a('B', false, '21'), a('A', false, '22'), a('C', true, '20')],
+                  const merged = m.mergeDocuments([
+                    {accounts: [a('A', true, '20'), a('B', true, '25')], aliases: {A: 'One'}},
+                    {accounts: [a('B', false, '21'), a('A', false, '22'), a('C', true, '20')],
+                     aliases: {A: 'Old', C: 'Three'}},
                   ]);
-                  const updated = m.withDecision(merged, a('A', true, '26'));
-                  const bytes = m.serializeDecisions(updated);
+                  const updated = m.withDecision(merged.accounts, a('A', true, '26'));
+                  const renamed = m.withAlias(m.withAlias(merged.aliases, 'B', ' Two '), 'C', ' ');
+                  const bytes = m.serializeDocument({accounts: updated, aliases: renamed});
+                  const back = m.parseDocument(bytes);
+                  const text = new TextDecoder().decode(bytes);
                   return {
-                    merged: merged.map((d) => [d.iban, d.owned]),
+                    merged: merged.accounts.map((d) => [d.iban, d.owned]),
                     updated: updated.map((d) => [d.iban, d.owned, d.decided_on]),
-                    roundTrip: m.parseDecisions(bytes).length,
-                    garbage: m.parseDecisions(new TextEncoder().encode('not json')).length,
+                    aliases: back.aliases,
+                    version: JSON.parse(text).version,
+                    roundTrip: back.accounts.length,
+                    garbage: m.parseDocument(new TextEncoder().encode('not json')),
+                    oldFile: m.parseDocument(new TextEncoder().encode(JSON.stringify(
+                      {format: 'fina-own-accounts', version: 1, accounts: [a('A', true, '1')]}
+                    ))).aliases,
                     today: m.todayIso(new Date(2026, 0, 5)),
                   };
                 }"""
@@ -210,7 +258,10 @@ def test_confirmation_file_merge_keeps_the_latest_decision_per_account(
             ["B", True, "2026-09-25"],
             ["C", True, "2026-09-20"],
         ],
+        "aliases": {"A": "One", "B": "Two"},
+        "version": 2,
         "roundTrip": 3,
-        "garbage": 0,
+        "garbage": {"accounts": [], "aliases": {}},
+        "oldFile": {},
         "today": "2026-01-05",
     }

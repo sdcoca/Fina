@@ -264,6 +264,7 @@ def test_bridge_run_is_byte_identical_to_the_native_cli_over_the_real_fixtures(
         "is_partial": latest.is_partial,
         "real_net_worth": str(round_half_up(latest.real_net_worth)),
         "estimated": None,
+        "positions_at_cost": str(round_half_up(latest.positions_at_cost)),
         "savings_only": str(round_half_up(latest.savings_only)),
         "gap": str(round_half_up(latest.gap)),
     }
