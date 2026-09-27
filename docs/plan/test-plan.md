@@ -346,6 +346,7 @@ contain); code, comments, test names and docs are English.
 | T-521 | App, 390px light and dark: the broker fixture alone opens "Might be yours" with its one account (transfers, totals, dates, note, only an "Import its statement" button, which opens the file picker); the figures are the native CLI's; a rename writes the version 3 names file and changes no figure; a reload shows everything from the cache without recomputing; no horizontal scroll | R-3.8 |
 | T-522 | Names-file helpers: merge keeps the current name per account (restore consolidation), rename and blank-name removal, version 3 round trip; unreadable, foreign, version 1 and version 2 files → only their valid names | R-3.8 |
 | T-523 | A cached result stamped with another engine (fina wheel SHA-256) is never shown: reopening recomputes it once and re-stamps it | CLAUDE.md rule 12 |
+| T-524 | Banners, 390px: the rejected-file and warning banners each close with their cross; a dismissed warning stays hidden on reload, a warning with other text still shows | CLAUDE.md rule 15 (owner's decision) |
 
 ### 8.2 Property-based (Hypothesis)
 

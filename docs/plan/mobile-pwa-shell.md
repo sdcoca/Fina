@@ -451,7 +451,7 @@ Supersedes the card order of WP-13..WP-19 (Import, Stored files, Backup, summary
    (§1.4b/§2.4.3).
 2. **Chart card** (WP-22a): the page's summary. Framed like every other card; its legend
    carries the three headline figures, so there is no separate summary card.
-3. **Accounts card** (WP-22b), collapsible, with an **Import** button in its header (importing a
+3. **Accounts card** (WP-22b), collapsible, with an **Import Statement** button in its header (importing a
    statement belongs with the accounts it declares; the file picker itself is hidden). Accounts
    with a statement are listed directly, in no group (each with its own files and their include
    checkboxes -- no separate "Stored files" card; no intro text, owner's decision 2026-09-27).
@@ -465,3 +465,7 @@ Supersedes the card order of WP-13..WP-19 (Import, Stored files, Backup, summary
    A cached result is shown on reopening only if the engine that computed it is the one
    shipped now (the fina wheel's SHA-256); otherwise it is recomputed once (WP-23).
 4. Page gutter 8px, card padding 12px: the owner found wider frames wasted a phone's width.
+5. The warning and rejected-file banners each carry a close cross (owner's request,
+   2026-09-27). A dismissed warning is remembered in this browser only, by its exact text, so a
+   different warning still shows. The expand/collapse arrows sit on the left of each heading,
+   away from the Import Statement button.

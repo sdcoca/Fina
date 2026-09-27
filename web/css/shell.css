@@ -254,6 +254,31 @@ h2 {
   font-size: 13.5px;
 }
 
+/* A banner's heading row: title, then its close cross. */
+.banner-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.banner-head > p {
+  flex: 1 1 auto;
+}
+
+.banner-close {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -6px -6px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--shell-ink-2);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .rejected-heading {
   margin: 0 0 6px;
   font-weight: 600;

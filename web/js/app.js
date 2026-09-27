@@ -164,6 +164,30 @@ function showChart(chartHtml) {
 // isn't the attack surface here.
 // ---------------------------------------------------------------------------
 
+/**
+ * A banner's heading row: its title and a close cross (owner's request, 2026-09-27).
+ *
+ * @param {string} className -- the heading's own class.
+ * @param {string} text
+ * @param {() => void} onClose
+ */
+function _bannerHeading(className, text, onClose) {
+  const row = document.createElement("div");
+  row.className = "banner-head";
+  const heading = document.createElement("p");
+  heading.className = className;
+  heading.textContent = text;
+  row.appendChild(heading);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "banner-close";
+  close.setAttribute("aria-label", "Dismiss");
+  close.textContent = "×";
+  close.addEventListener("click", onClose);
+  row.appendChild(close);
+  return row;
+}
+
 function renderRejected(rejected) {
   rejectedFilesEl.replaceChildren();
   if (rejected.length === 0) {
@@ -171,13 +195,17 @@ function renderRejected(rejected) {
     return;
   }
   rejectedFilesEl.hidden = false;
-  const heading = document.createElement("p");
-  heading.className = "rejected-heading";
-  heading.textContent =
-    rejected.length === 1
-      ? "1 file was not imported:"
-      : `${rejected.length} files were not imported:`;
-  rejectedFilesEl.appendChild(heading);
+  rejectedFilesEl.appendChild(
+    _bannerHeading(
+      "rejected-heading",
+      rejected.length === 1
+        ? "1 file was not imported:"
+        : `${rejected.length} files were not imported:`,
+      () => {
+        rejectedFilesEl.hidden = true;
+      }
+    )
+  );
   const list = document.createElement("ul");
   for (const { file, reason } of rejected) {
     const item = document.createElement("li");
@@ -190,17 +218,47 @@ function renderRejected(rejected) {
   rejectedFilesEl.appendChild(list);
 }
 
-function renderWarnings(warnings) {
+// Warnings the user dismissed with the banner's cross, remembered in this browser only (a
+// per-viewer convenience: losing it just shows them again). A warning with any other text --
+// a new file, a changed figure -- still shows.
+const _DISMISSED_WARNINGS_KEY = "fina.dismissedWarnings";
+
+function _dismissedWarnings() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(_DISMISSED_WARNINGS_KEY) || "[]");
+    return new Set(Array.isArray(stored) ? stored : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function _dismissWarnings(messages) {
+  const dismissed = _dismissedWarnings();
+  for (const message of messages) {
+    dismissed.add(message);
+  }
+  try {
+    localStorage.setItem(_DISMISSED_WARNINGS_KEY, JSON.stringify([...dismissed]));
+  } catch {
+    // storage unavailable: dismissed for this page view only
+  }
+}
+
+function renderWarnings(allWarnings) {
   warningsEl.replaceChildren();
-  if (!warnings || warnings.length === 0) {
+  const dismissed = _dismissedWarnings();
+  const warnings = (allWarnings || []).filter((message) => !dismissed.has(message));
+  if (warnings.length === 0) {
     warningsEl.hidden = true;
     return;
   }
   warningsEl.hidden = false;
-  const heading = document.createElement("p");
-  heading.className = "warnings-heading";
-  heading.textContent = "Warnings";
-  warningsEl.appendChild(heading);
+  warningsEl.appendChild(
+    _bannerHeading("warnings-heading", "Warnings", () => {
+      _dismissWarnings(warnings);
+      warningsEl.hidden = true;
+    })
+  );
   const list = document.createElement("ul");
   for (const message of warnings) {
     const item = document.createElement("li");
