@@ -30,8 +30,8 @@ const GROUPS = [
     id: "maybe",
     label: "Might be yours",
     note:
-      "Transfers to or from these accounts carry your name. Until you import their statement, " +
-      "they count as money going out or coming in.",
+      "Your statements show transfers to or from these accounts, under the same holder name " +
+      "(probably you). Consider adding their statements for accurate tracking:",
   },
   {
     id: "unlinked",

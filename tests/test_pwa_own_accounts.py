@@ -111,8 +111,8 @@ def test_accounts_section_might_be_yours_rename_and_files(
             )
             note = page.locator('#accounts-groups details[data-group="maybe"] .group-note')
             assert note.inner_text() == (
-                "Transfers to or from these accounts carry your name. Until you import their "
-                "statement, they count as money going out or coming in."
+                "Your statements show transfers to or from these accounts, under the same holder "
+                "name (probably you). Consider adding their statements for accurate tracking:"
             )
             assert card.locator("button").all_inner_texts() == ["Import its statement"]
             assert _IBAN not in page.locator("#status-section").inner_text()
