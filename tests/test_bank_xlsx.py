@@ -441,7 +441,6 @@ def test_compra_without_tarjeta_does_not_match_rule_3(tmp_path: Path) -> None:
     result = bank_xlsx.parse(path)
     entry = next(e for e in result.entries if e.source_row == 9)
     assert entry.movement_type is MovementType.EXTERNAL_DEPOSIT
-    assert any("COMPRA Ejemplo sin palabra clave" in w.message for w in result.warnings)
 
 
 def test_transferencia_a_captures_the_counterparty_name(tmp_path: Path) -> None:
@@ -491,92 +490,44 @@ def test_transfer_names_leave_out_a_favor_de_and_a_comma_less_concepto(
     assert (entry.movement_type, entry.counterparty_name) == (movement_type, name)
 
 
+def test_card_purchases_abbreviated_tarj_match_rule_3(tmp_path: Path) -> None:
+    """Rule 3 accepts the abbreviated "TARJ. :*1234" too: a (rare) positive amount still
+    lands on EXPENSE, proving the rule itself matched rather than the sign."""
+
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = "COMPRA INTERNET EN APP EJEMPLO, MADRID, TARJ. :*000001"
+        ws["D9"] = "1,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="tarj.xlsx")
+    entry = next(e for e in bank_xlsx.parse(path).entries if e.source_row == 9)
+    assert entry.movement_type is MovementType.EXPENSE
+
+
 @pytest.mark.parametrize(
-    ("concepto", "amount", "movement_type"),
+    "concepto",
     [
-        ("COMPRA EN TIENDA EJEMPLO, MADRID ES, TARJ. :*000001", "-5,00€", MovementType.EXPENSE),
-        ("COMPRA INTERNET EN APP EJEMPLO, MADRID, TARJ. :*000001", "-2,00€", MovementType.EXPENSE),
-        (
-            "DEVOLUCION COMPRA EN TIENDA, MADRID, TARJETA 0000000000000001 , COMISION 0,00",
-            "5,00€",
-            MovementType.EXTERNAL_DEPOSIT,
-        ),
-        (
-            "ANUL COMPRA INTERNET EN APP EJEMPLO, MADRID, TARJ. :*000001",
-            "2,00€",
-            MovementType.EXTERNAL_DEPOSIT,
-        ),
-        (
-            "ANULACION PAGO MOVIL EN BAR EJEMPLO, MADRID, TARJ. :*000001",
-            "3,00€",
-            MovementType.EXTERNAL_DEPOSIT,
-        ),
-        (
-            "ANUL.REINTEGRO, ATM:00000001, MADRID, TARJ. :*000001",
-            "3,95€",
-            MovementType.EXTERNAL_DEPOSIT,
-        ),
-        ("GESTION DEVOLUCIONES - INTERIOR BS", "1,00€", MovementType.EXTERNAL_DEPOSIT),
-        (
-            "REINTEGRO EN BANCO EJEMPLO, CIUDAD, TARJETA 0000000000000001",
-            "-50,00€",
-            MovementType.EXPENSE,
-        ),
-        (
-            "COMISION REINTEGRO EN BANCO EJEMPLO, CIUDAD, TARJETA 0000000000000001",
-            "-4,00€",
-            MovementType.EXPENSE,
-        ),
-        (
-            "RETIRADA DE EFECTIVO EN CAJERO AUTOMATICO 000000000001 EL 06/08/2026",
-            "-20,00€",
-            MovementType.EXPENSE,
-        ),
-        ("DOMICILIACION IMPUESTO: 2.024 I.R.P.F.-", "-100,00€", MovementType.EXPENSE),
-        ("2024I.R.P.F.-.", "-100,00€", MovementType.EXPENSE),
-        ("2025IVA AUTOLIQUIDACION.", "-100,00€", MovementType.EXPENSE),
-        ("CONSTITUCION DEPOSITO SUBASTAS", "-500,00€", MovementType.EXTERNAL_WITHDRAWAL),
-        ("LIBERACION DEPOSITO SUBASTAS", "500,00€", MovementType.EXTERNAL_DEPOSIT),
+        "EMISION",
+        "DEVOLUCION COMPRA EN TIENDA, MADRID, TARJETA 0000000000000001 , COMISION 0,00",
+        "REINTEGRO EN BANCO EJEMPLO, CIUDAD, TARJETA 0000000000000001",
+        "DOMICILIACION IMPUESTO: 2.024 I.R.P.F.-",
     ],
 )
-def test_santander_wordings_are_recognized_without_a_warning(
-    tmp_path: Path, concepto: str, amount: str, movement_type: MovementType
+def test_an_unfamiliar_wording_is_classified_by_sign_without_a_warning(
+    tmp_path: Path, concepto: str
 ) -> None:
-    """Owner's real export: ~190 rows of these wordings each raised an "unrecognized concept"
-    warning they could do nothing about. Each now has its own rule (R-7.10, rules 3, 13-16)."""
+    """R-7.11 (revised twice, owner's decision 2026-09-27): only "is it a transfer between my
+    own accounts?" matters; for anything else the sign is enough, and warning on every
+    unfamiliar wording buried the owner in ~190 lines they could not act on."""
 
     def mutate(ws: Worksheet) -> None:
         ws["C9"] = concepto
-        ws["D9"] = amount
-
-    path = bank_xlsx_with(tmp_path, mutate, filename="wordings.xlsx")
-    result = bank_xlsx.parse(path)
-    entry = next(e for e in result.entries if e.source_row == 9)
-    assert (entry.movement_type, entry.counterparty_name) == (movement_type, None)
-    assert not any(concepto in w.message for w in result.warnings)
-
-
-@pytest.mark.parametrize(
-    "concepto", ["EMISION", "0000DOCUMENTOS DE INGRESO PARCIAL.", "REINTEGRADO"]
-)
-def test_wordings_with_no_rule_still_warn(tmp_path: Path, concepto: str) -> None:
-    def mutate(ws: Worksheet) -> None:
-        ws["C9"] = concepto
-        ws["D9"] = "-1,00€"
-
-    path = bank_xlsx_with(tmp_path, mutate, filename="unknown.xlsx")
-    assert any(concepto in w.message for w in bank_xlsx.parse(path).warnings)
-
-
-def test_unrecognized_concept_warning_carries_correct_source_file(tmp_path: Path) -> None:
-    def mutate(ws: Worksheet) -> None:
-        ws["C9"] = "ALGO TOTALMENTE DESCONOCIDO"
         ws["D9"] = "-1,00€"
 
     path = bank_xlsx_with(tmp_path, mutate, filename="unknownfile.xlsx")
     result = bank_xlsx.parse(path)
-    warning = next(w for w in result.warnings if "ALGO TOTALMENTE DESCONOCIDO" in w.message)
-    assert warning.source_file == "unknownfile.xlsx"
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert (entry.movement_type, entry.counterparty_name) == (MovementType.EXPENSE, None)
+    assert result.warnings == ()
 
 
 def test_t214_transferencia_de_with_concepto_suffix_strips_it(tmp_path: Path) -> None:
@@ -686,9 +637,8 @@ def test_t216_accent_and_case_insensitive_concept_matching(tmp_path: Path, conce
 def test_t217_t218_unmatched_concept_falls_back_to_sign_based_classification(
     tmp_path: Path, amount: str, expected: MovementType
 ) -> None:
-    """R-7.11 (revised): a concept matching no named rule no longer aborts the file -- it is
-    classified by the amount's sign (negative -> EXPENSE, non-negative -> EXTERNAL_DEPOSIT)
-    and always emits a warning naming the exact concept and row (never silent).
+    """R-7.11 (revised twice): a concept matching no named rule is classified by the amount's
+    sign (negative -> EXPENSE, non-negative -> EXTERNAL_DEPOSIT), with no warning.
     """
 
     def mutate(ws: Worksheet) -> None:
@@ -700,9 +650,7 @@ def test_t217_t218_unmatched_concept_falls_back_to_sign_based_classification(
     entry = next(e for e in result.entries if e.source_row == 9)
     assert entry.movement_type is expected
     assert entry.counterparty_name is None
-    warning = next(w for w in result.warnings if w.source_row == 9)
-    assert "UN CONCEPTO TOTALMENTE DESCONOCIDO" in warning.message
-    assert expected.value in warning.message
+    assert not any("UN CONCEPTO" in w.message for w in result.warnings)
 
 
 # ---------------------------------------------------------------------------

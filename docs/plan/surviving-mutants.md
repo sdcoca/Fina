@@ -687,4 +687,4 @@ sign/zero helpers by `removeprefix`/set checks, so no unreachable fallback is le
 | `fina.render.section1_chart.x__x_labels_svg__mutmut_18`, `fina.render.section1_chart.x__x_labels_svg__mutmut_21`, `fina.render.section1_chart.x__x_labels_svg__mutmut_22` | `zip(rows, points, strict=True)` → `strict=None` / omitted / `False` | **Equivalent** — `points` is built one per row (`_build_points`), so the lengths always match; same reasoning as the chart's other `zip(..., strict=...)` survivors above. |
 | `fina.render.section1_chart.x__y_ticks__mutmut_3` | `(max - min) / step` → `* step` | **Timeout, not a survivor**: builds millions of ticks; counted as caught. |
 
-Bank rules 3 and 13-16 (2026-09-27, R-7.10): every mutant killed.
+Bank rule 3 (`TARJ`) and the warning-free R-7.11 fallback (2026-09-27): every mutant killed.

@@ -647,22 +647,22 @@ case-insensitive, accent-insensitive matching:
 | 10 | `DEVOLUCION BIZUM RECIBIDO DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT`; `name` → `counterparty_name` |
 | 11 | `BIZUM A FAVOR DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_WITHDRAWAL`; `name` → `counterparty_name` |
 | 12 | `BIZUM DE (?P<name>.+?)(,?\s*CONCEPTO\b.*)?$` | `EXTERNAL_DEPOSIT`; `name` → `counterparty_name` |
-| 13 | `DEVOLUCION COMPRA`, `ANUL COMPRA`, `ANULACION PAGO MOVIL`, `ANUL.REINTEGRO`, `GESTION DEVOLUCIONES` (a refund or a cancelled payment) | `EXTERNAL_DEPOSIT` |
-| 14 | `REINTEGRO`, `COMISION REINTEGRO`, `RETIRADA DE EFECTIVO` (cash from an ATM and its fee) | `EXPENSE` |
-| 15 | `DOMICILIACION IMPUESTO`, or a year followed by `I.R.P.F` / `IVA` (taxes) | `EXPENSE` |
-| 16 | `CONSTITUCION DEPOSITO SUBASTAS` / `LIBERACION DEPOSITO SUBASTAS` (a court-auction deposit lodged / released) | `EXTERNAL_WITHDRAWAL` / `EXTERNAL_DEPOSIT` |
 
 *(Bizum's own "De"/"A favor de" name is the receiving bank's record of the other registered
 party, not sender-editable free text -- same trust level as rule 7/8's ordinante name. Unlike
 a plain transfer, Bizum can never be internal: a phone number links to at most one account
 network-wide, so there is no owned-account collision to detect here; the name is captured
 only for R-1.10 traceability. The `CONCEPTO` suffix has no comma on real Bizum rows, unlike
-rules 7/8's transfers -- the comma is optional in rules 10-12.)* *(Rules 13-16 and rule 3's `TARJ` added 2026-09-27: on the owner's real export these wordings raised ~190 R-7.11 warnings they could not act on; 2 genuinely ambiguous rows still warn.)* *(Revised 2026-09-26 on the owner's real export: rules 7/8 also take the comma-less `CONCEPTO` form, and rule 8 the longer "A FAVOR DE" wording; neither is part of the name.)*
+rules 7/8's transfers -- the comma is optional in rules 10-12.)* *(Rule 3's `TARJ` added 2026-09-27: the owner's real export abbreviates card purchases as `TARJ. :*1234`.)* *(Revised 2026-09-26 on the owner's real export: rules 7/8 also take the comma-less `CONCEPTO` form, and rule 8 the longer "A FAVOR DE" wording; neither is part of the name.)*
 
-**R-7.11 (revised)** No match against rules 1-16 ⇒ classify by the amount's sign as a last
+**R-7.11 (revised)** No match against rules 1-12 ⇒ classify by the amount's sign as a last
 resort: negative → `EXPENSE`, non-negative → `EXTERNAL_DEPOSIT` (`counterparty_name` stays
-`None` in both cases). This MUST always emit a warning naming the row and the exact
-unrecognized `Concepto` text. *(rationale, revised: the original prohibition on a catch-all
+`None` in both cases), with **no warning** *(revised again 2026-09-27, owner's decision: for
+the net-worth bridge the only question a row raises is whether it moves money between the
+owner's own accounts; if it does not, its sign is all that matters. The per-row warning below
+produced ~190 lines on the owner's real export that they could not act on -- noise, not
+transparency. Transfer rows are still recognized by rules 7/8 and never fall here.)*.
+*(earlier rationale, superseded: the original prohibition on a catch-all
 existed to satisfy CLAUDE.md rule 15 -- never absorb something doubtful in silence. A real
 bank export showed this bank inventing new wording faster than a fixed rule list can track
 (bond redemptions, "INMEDIATA" transfers, "TARJ." abbreviations, dozens of ATM/refund/tax-debit

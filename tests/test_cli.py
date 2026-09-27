@@ -33,12 +33,12 @@ def test_t504_warnings_printed_before_any_figure(
 ) -> None:
     input_dir = _copy_both_fixtures(tmp_path)
 
-    # The clean fixtures emit no warning at all; an unrecognized bank concept guarantees one
-    # (R-7.11's sign-based fallback) without touching any amount or balance.
-    def unknown_concept(ws: Worksheet) -> None:
-        ws["C9"] = "UN CONCEPTO DESCONOCIDO"
+    # The clean fixtures emit no warning at all; a header balance that disagrees with the
+    # movements guarantees one (R-8.5) without touching any movement.
+    def header_mismatch(ws: Worksheet) -> None:
+        ws["D4"] = "1,00€ EUR"
 
-    bank_xlsx_with(input_dir, unknown_concept, filename="banco_ejemplo.xlsx")
+    bank_xlsx_with(input_dir, header_mismatch, filename="banco_ejemplo.xlsx")
     out_dir = tmp_path / "out"
 
     exit_code = cli.main(["build", "--input", str(input_dir), "--out", str(out_dir)])
