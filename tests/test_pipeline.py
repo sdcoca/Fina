@@ -240,7 +240,6 @@ def test_t507_manifest_contains_every_required_field(tmp_path: Path) -> None:
             "is_partial",
             "real_net_worth",
             "positions_at_cost",
-            "estimated_net_worth",
             "completeness",
             "savings_flow",
             "opening_balances",
@@ -261,7 +260,6 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
         is_partial=False,
         real_net_worth=Decimal("111.11"),
         positions_at_cost=Decimal("666.66"),
-        estimated_net_worth=Decimal("555.55"),
         completeness="positions_at_cost",
         savings_flow=Decimal("444.44"),
         opening_balances=Decimal("777.77"),
@@ -279,7 +277,6 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
     )
     (entry,) = manifest_dict(result)["section1_series"]
     assert entry["real_net_worth"] == "111.11"
-    assert entry["estimated_net_worth"] == "555.55"
     assert entry["savings_only"] == "222.22"
     assert entry["gap"] == "333.33"
     assert entry["savings_flow"] == "444.44"

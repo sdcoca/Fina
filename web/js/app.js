@@ -21,25 +21,23 @@
 // that actually adds files follows the exact same write-then-refresh-then-run sequencing
 // `handleFiles` below already uses for a fresh pick -- see `handleRestore`.
 //
-// WP-19/WP-22b (R-3.8): the "Accounts" section after the chart (rendered by `accounts.js`):
-// statement accounts with their own files, accounts to confirm, and the names the user gave
-// them. Every "Mine" / "Not mine" / rename rewrites the own-accounts confirmation file (a
-// stored file like any statement, via `storage.js`) and re-runs -- the engine alone decides
-// what that changes. The chart itself carries the three headline figures (WP-22a), so there is
-// no separate summary card any more.
+// WP-22b/WP-23 (R-3.8): the "Accounts" section after the chart (rendered by `accounts.js`):
+// statement accounts with their own files, accounts that might be the user's (display only,
+// each with an "Import its statement" button), and the names the user gave them. A rename
+// rewrites the account-names file (a stored file like any statement, via `storage.js`) and
+// re-runs. The chart itself carries the three headline figures (WP-22a), so there is no
+// separate summary card any more.
+//
+// WP-23: a cached result is only shown if the engine that computed it is the one shipped now
+// (`engineId()`, the vendored fina wheel's SHA-256): after an update that changes how figures
+// are computed, reopening the app recomputes instead of showing figures the new engine would
+// not produce (CLAUDE.md rule 12).
 
 import { renderAccounts } from "./accounts.js";
 import { exportBackupToFile, restoreFromFile } from "./backup.js";
 import { sniffAndPartition } from "./import.js";
-import {
-  mergeDocuments,
-  parseDocument,
-  serializeDocument,
-  todayIso,
-  withAlias,
-  withDecision,
-} from "./own-accounts.js";
-import { runBuild } from "./pyodide-bridge.js";
+import { mergeDocuments, parseDocument, serializeDocument, withAlias } from "./own-accounts.js";
+import { engineId, runBuild } from "./pyodide-bridge.js";
 import * as storage from "./storage.js";
 
 const fileInput = document.getElementById("file-input");
@@ -219,7 +217,7 @@ function renderWarnings(warnings) {
 
 let _lastRun = { accounts: [], candidates: [] };
 
-/** The stored confirmation file(s) as one document: decisions and names. */
+/** The stored account-names file(s) as one document. */
 async function _currentDocument() {
   const files = await storage.getOwnAccountsFiles();
   return mergeDocuments(files.map((f) => parseDocument(f.bytes)));
@@ -258,7 +256,6 @@ async function refreshAccounts({ expandAttention = false } = {}) {
     },
     {
       onToggleFile: onToggleActive,
-      onDecide: decideAccount,
       onRename: renameAccount,
       onImport: () => fileInput.click(),
       onError: (err) => showError(err && err.message ? err.message : String(err)),
@@ -268,29 +265,12 @@ async function refreshAccounts({ expandAttention = false } = {}) {
   return files;
 }
 
-/** Rewrites the confirmation file with `change` applied, then recomputes. */
+/** Rewrites the account-names file with `change` applied, then recomputes. */
 async function _updateDocument(change) {
   const doc = await _currentDocument();
   await storage.replaceOwnAccountsFile(serializeDocument(change(doc)));
   await refreshAccounts();
   await runOverActiveSet();
-}
-
-/** Records the user's decision on one account (R-3.8). */
-async function decideAccount(candidate, owned) {
-  await _updateDocument((doc) => {
-    const previous = doc.accounts.find((d) => d.iban === candidate.iban);
-    const holderName = candidate.holder_names[0] ?? (previous && previous.holder_name);
-    return {
-      ...doc,
-      accounts: withDecision(doc.accounts, {
-        iban: candidate.iban,
-        holder_name: holderName,
-        owned,
-        decided_on: todayIso(),
-      }),
-    };
-  });
 }
 
 /** Names one account (a blank name goes back to the default label). */
@@ -299,8 +279,8 @@ async function renameAccount(key, name) {
 }
 
 /**
- * After a backup restore: if it brought in a second confirmation file, merge both into one
- * (latest decision per account wins) so a run never reads two versions.
+ * After a backup restore: if it brought in a second account-names file, merge both into one
+ * (the current names win) so a run never reads two versions.
  */
 async function consolidateOwnAccounts() {
   const files = await storage.getOwnAccountsFiles();
@@ -342,21 +322,31 @@ function _idsEqual(a, b) {
  * on load (that would pay the boot cost on every single open, defeating the point of caching);
  * the shell instead stays in its empty state until the user picks a file or toggles a checkbox,
  * either of which always recomputes over the current active set.
+ *
+ * WP-23: the one exception is a cache computed by a different engine (an app update changed
+ * `engineId()`): its figures may no longer be what the engine computes, so it is never shown,
+ * and the same active set is recomputed once instead.
+ *
+ * @returns {Promise<boolean>} true when the cache was from another engine (caller re-runs).
  */
 async function displayCachedResultIfFresh(files) {
   const cache = await storage.getRunCache();
   if (!cache) {
-    return;
+    return false;
   }
   const activeIds = files.filter((f) => f.active).map((f) => f.id);
   if (activeIds.length === 0 || !_idsEqual(activeIds, cache.activeIds || [])) {
-    return;
+    return false;
+  }
+  if (cache.engine !== (await engineId())) {
+    return true;
   }
   renderWarnings(cache.warnings);
   statusSection.hidden = false;
   _lastRun = { accounts: cache.accounts || [], candidates: cache.candidates || [] };
   await refreshAccounts();
   showChart(cache.chartHtml);
+  return false;
 }
 
 /**
@@ -400,6 +390,7 @@ async function runOverActiveSet({ expandAttention = false } = {}) {
       _lastRun = { accounts: result.accounts, candidates: result.candidates };
       await _linkFilesToAccounts(result.accounts);
       await storage.setRunCache({
+        engine: await engineId(),
         activeIds: activeRecords.map((r) => r.id),
         warnings: result.warnings,
         accounts: result.accounts,
@@ -496,7 +487,7 @@ async function handleFiles(fileList) {
 
   // WP-15 (Q-M, "persistent library"): the run's input is every stored *active* file, not only
   // what was just picked -- picking adds to the persistent set rather than replacing it.
-  // WP-22b: a file was loaded, so the account groups that need attention open by themselves.
+  // WP-22b: a file was loaded, so accounts that might be the user's are shown open.
   await runOverActiveSet({ expandAttention: true });
 }
 
@@ -628,7 +619,9 @@ restoreBackupInput.addEventListener("change", (event) => {
 
 async function init() {
   const files = await refreshAccounts();
-  await displayCachedResultIfFresh(files);
+  if (await displayCachedResultIfFresh(files)) {
+    await runOverActiveSet();
+  }
 }
 
 const _initPromise = init()

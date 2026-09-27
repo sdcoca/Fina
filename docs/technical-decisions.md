@@ -119,3 +119,18 @@ listed with the other stored files and included in backups — rather than by an
 setting. A statement, when supplied, always wins: its declaration replaces the confirmation's
 estimated balance (spec R-3.9), and conflicting holders are still refused (R-3.3).
 
+### 5.5 Amendment (2026-09-27): no transfer is recognized as internal; 5.4 withdrawn
+
+Recognizing a transfer as internal from one side's data (the counterparty's IBAN or name)
+proved fragile on the owner's real data: the bank writes a recipient's name as it was saved,
+with or without a middle name, and the broker only includes the sender's IBAN from mid-2026,
+so one leg could be recognized while the other was not — each such transfer showed as
+investment return that does not exist. Every transfer now counts as money in or out of the
+account it appears in (spec R-3.4, revised): when both statements are supplied the two legs
+cancel in every total, and when one is missing net worth and savings move together, leaving
+the return untouched. §5.3's re-classification pass and §5.4's confirmation file are withdrawn
+(the file survives only to hold the names the owner gives their accounts, spec R-3.8); accounts
+in the owner's name without a statement are still listed, display only, with a way to import
+their statement. §5.2 stands: an account is the owner's if and only if they supplied its
+statement.
+

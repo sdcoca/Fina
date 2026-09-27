@@ -98,21 +98,19 @@
     ></iframe>
   </section>
 
-  <!-- WP-22b: every account, after the chart -- statement accounts with their own files (the
-       include checkbox per file lives here; the separate "Stored files" card is gone), then
-       accounts to confirm (R-3.8). Collapsed by default; after a file is loaded, the groups
-       that need attention open by themselves (web/js/accounts.js). -->
+  <!-- WP-22b/WP-23: every account, after the chart -- statement accounts with their own files
+       (the include checkbox per file lives here; the separate "Stored files" card is gone),
+       then accounts that might be the user's (R-3.8, display only). Collapsed by default;
+       after a file is loaded, "Might be yours" opens by itself (web/js/accounts.js). -->
   <details id="accounts-section" class="accounts-section">
     <summary class="acc-summary">
       <h2 id="accounts-heading">Accounts</h2>
-      <span id="accounts-attention" class="attn" hidden></span>
       <button id="import-button" class="import-button" type="button"
               title="A Trade Republic CSV export or a Spanish bank XLSX export">Import</button>
     </summary>
     <p class="accounts-description">
-      Transfers to or from some of these accounts carry your name, but no statement for them
-      has been imported. If you tag them as yours, money moved to or from them will be counted
-      as internal transfers. Their balance will be estimated until you import their statement.
+      Every transfer counts as money coming in or going out of the account it appears in.
+      Between two accounts whose statements are both imported, the two sides cancel out.
     </p>
     <!-- PWA-3.3a: the supported formats are named where the import action lives. -->
     <p id="accounts-empty" class="accounts-empty">

@@ -44,11 +44,6 @@ def _build(input_dir: Path, out_dir: Path) -> int:
                 "  of which investments at purchase cost (prices not updated): "
                 f"{round_half_up(latest.positions_at_cost)} EUR"
             )
-        if latest.estimated_net_worth != 0:
-            print(
-                "  of which estimated (own accounts without a statement): "
-                f"{round_half_up(latest.estimated_net_worth)} EUR"
-            )
         print(f"savings_only: {round_half_up(latest.savings_only)} EUR")
         print(f"gap: {round_half_up(latest.gap)} EUR")
 

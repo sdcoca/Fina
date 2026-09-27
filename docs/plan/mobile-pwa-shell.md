@@ -454,10 +454,13 @@ Supersedes the card order of WP-13..WP-19 (Import, Stored files, Backup, summary
 3. **Accounts card** (WP-22b), collapsible, with an **Import** button in its header (importing a
    statement belongs with the accounts it declares; the file picker itself is hidden). Groups:
    with a statement (each with its own files and their include checkboxes -- no separate
-   "Stored files" card), needs your decision, yours without a statement, not yours, other files
-   (not linked to an account yet). Every account can be renamed; names are stored in the
-   confirmation file (R-3.8, version 2) so they travel with the backup. Collapsed by default;
-   after a file is loaded, the section and the groups that need attention open by themselves;
-   a decided account's new group opens so the card stays in view; with nothing imported the
-   section is open, showing how to start.
+   "Stored files" card), might be yours (WP-23: accounts in the owner's name with no statement,
+   display only, each with an "Import its statement" button -- the former "Mine / Not mine"
+   decision and estimated balances are gone, R-3.4/R-3.8 as revised 2026-09-27), other files
+   (not linked to an account yet). Every statement account can be renamed; names are stored in
+   the account-names file (R-3.8, version 3) so they travel with the backup. Collapsed by
+   default; after a file is loaded, the section and "Might be yours" (when it has accounts)
+   open by themselves; with nothing imported the section is open, showing how to start.
+   A cached result is shown on reopening only if the engine that computed it is the one
+   shipped now (the fina wheel's SHA-256); otherwise it is recomputed once (WP-23).
 4. Page gutter 8px, card padding 12px: the owner found wider frames wasted a phone's width.

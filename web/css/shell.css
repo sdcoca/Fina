@@ -498,15 +498,6 @@ h2 {
   transform: rotate(90deg);
 }
 
-.attn {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--shell-warning);
-  background: var(--shell-warning-bg);
-  border-radius: 999px;
-  padding: 2px 9px;
-}
-
 .accounts-description {
   margin: 0 0 10px;
   color: var(--shell-ink-2);
@@ -545,13 +536,6 @@ h2 {
   font-weight: 600;
   letter-spacing: 0;
   color: var(--shell-muted);
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--shell-warning);
 }
 
 .group-note {
@@ -623,22 +607,8 @@ h2 {
   color: var(--shell-accent);
 }
 
-.badge--pending,
-.badge--estimated {
-  background: var(--shell-warning-bg);
-  color: var(--shell-warning);
-}
-
-.badge--not-yours {
+.badge--maybe {
   background: var(--shell-border);
-  color: var(--shell-ink-2);
-}
-
-.own-account--pending {
-  border-left: 4px solid var(--shell-warning);
-}
-
-.own-account--not_owned {
   color: var(--shell-ink-2);
 }
 
@@ -652,19 +622,9 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
-.account .balance,
-.account .own-account-balance {
+.account .balance {
   margin-top: 4px;
   font-variant-numeric: tabular-nums;
-}
-
-.account .own-account-missing {
-  margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--shell-warning-bg);
-  color: var(--shell-ink);
-  font-weight: 600;
 }
 
 .own-account-actions {
@@ -673,12 +633,6 @@ h2 {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
-}
-
-.own-account-status {
-  flex: 1 0 100%;
-  font-size: 13px;
-  color: var(--shell-ink-2);
 }
 
 .acc-rename {

@@ -1,21 +1,20 @@
 // web/js/accounts.js
 //
-// WP-22b: the "Accounts" section (after the chart). One card per account, in collapsible
+// WP-22b/WP-23: the "Accounts" section (after the chart). One card per account, in collapsible
 // groups:
-//   1. "With a statement"            -- accounts a statement declares, with their own files
-//                                       inside (each file's include checkbox lives here now:
-//                                       the separate "Stored files" card is gone).
-//   2. "Needs your decision"         -- R-3.8 candidates still pending: "Mine" / "Not mine".
-//   3. "Yours, without a statement"  -- confirmed accounts: estimated balance (R-3.9) and, when
-//                                       money must have reached them from outside, a
-//                                       "Missing data" note.
-//   4. "Not yours"
-//   5. "Other files"                 -- stored files not linked to an account yet (they have
-//                                       never been part of a successful run).
-// Every account can be given a name (alias, stored in the confirmation file so it travels with
-// the backup). Collapsed by default; after a file is loaded, the section and the groups that
-// need attention open by themselves (owner's decision, 2026-09-26). Everything is built with
-// createElement/textContent -- file names and holder names are never parsed as HTML.
+//   1. "With a statement"  -- accounts a statement declares, with their own files inside (each
+//                             file's include checkbox lives here: the separate "Stored files"
+//                             card is gone). Each can be given a name (alias, stored in the
+//                             account-names file so it travels with the backup).
+//   2. "Might be yours"    -- R-3.8: accounts in the owner's name with no statement, each with
+//                             an "Import its statement" button. Display only: they change no
+//                             figure (owner's decision, 2026-09-27, replacing "Mine / Not
+//                             mine" -- every transfer counts as money in or out, R-3.4).
+//   3. "Other files"       -- stored files not linked to an account yet (they have never been
+//                             part of a successful run).
+// Collapsed by default; after a file is loaded, the section and "Might be yours" open by
+// themselves when it has accounts. Everything is built with createElement/textContent -- file
+// names and holder names are never parsed as HTML.
 //
 // No financial logic: every amount is a display string from `web/py/bridge.py`, only
 // regrouped with thousands separators here, never parsed as a JS number (CLAUDE.md rule 9).
@@ -27,16 +26,23 @@ const INSTITUTION_LABELS = {
 
 const GROUPS = [
   { id: "statement", label: "With a statement" },
-  { id: "pending", label: "Needs your decision" },
-  { id: "owned", label: "Yours, without a statement" },
-  { id: "not_owned", label: "Not yours" },
-  { id: "unlinked", label: "Other files" },
+  {
+    id: "maybe",
+    label: "Might be yours",
+    note:
+      "Transfers to or from these accounts carry your name. Until you import their statement, " +
+      "they count as money going out or coming in.",
+  },
+  {
+    id: "unlinked",
+    label: "Other files",
+    note: "Linked to their account after the next successful run.",
+  },
 ];
 
-// Session state kept across re-renders: which groups the user opened, which decided accounts
-// were reopened with "Change", which account is being renamed.
+// Session state kept across re-renders: which groups the user opened, which account is being
+// renamed.
 const _openGroups = new Set();
-const _reopened = new Set();
 let _editingKey = null;
 
 /** `"-25000.5"` -> `"-25,000.5 €"`: regroups an already-rounded display string. */
@@ -45,10 +51,6 @@ export function formatEur(display) {
   const [whole, cents] = display.replace(/^-/, "").split(".");
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${negative ? "-" : ""}${grouped}${cents !== undefined ? `.${cents}` : ""} €`;
-}
-
-function _isZero(display) {
-  return /^-?0*(\.0*)?$/.test(display);
 }
 
 export function groupIban(iban) {
@@ -197,38 +199,17 @@ function _statementCard(root, ctx, account) {
   return li;
 }
 
-function _candidateCard(root, ctx, candidate) {
-  const li = _el("li", `account own-account own-account--${candidate.status}`);
+function _candidateCard(ctx, candidate) {
+  const li = _el("li", "account own-account");
   li.dataset.iban = candidate.iban;
-  const missingData = candidate.status === "owned" && !_isZero(candidate.unseen_income);
-  if (missingData) {
-    li.classList.add("own-account--missing-data");
-  }
-  const holder = candidate.holder_names.length ? candidate.holder_names.join(" · ") : "—";
+  const holder = candidate.holder_names.join(" · ");
   const head = _el("div", "account-head");
-  const title =
-    candidate.status === "owned"
-      ? _titleBlock(root, ctx, candidate.iban, holder)
-      : (() => {
-          const block = _el("div", "account-title");
-          block.appendChild(_el("p", "account-alias", holder));
-          return block;
-        })();
-  if (candidate.status === "owned" && ctx.model.aliases[candidate.iban]) {
-    title.appendChild(_el("p", "account-sub", holder));
-  }
+  const title = _el("div", "account-title");
+  title.appendChild(_el("p", "account-alias", holder));
   head.appendChild(title);
-  const badges = {
-    pending: ["Is it yours?", "pending"],
-    owned: ["Estimated", "estimated"],
-    not_owned: ["Not yours", "not-yours"],
-  };
-  head.appendChild(_badge(...badges[candidate.status]));
+  head.appendChild(_badge("No statement", "maybe"));
   li.appendChild(head);
   li.appendChild(_el("p", "iban", groupIban(candidate.iban)));
-  if (candidate.status === "owned" && _editingKey !== candidate.iban) {
-    li.appendChild(_renameLink(ctx, candidate.iban));
-  }
   const count = candidate.transfers === 1 ? "1 transfer" : `${candidate.transfers} transfers`;
   const period =
     candidate.first_date === candidate.last_date
@@ -241,65 +222,14 @@ function _candidateCard(root, ctx, candidate) {
   );
   meta.appendChild(_el("span", "nowrap", period)); // a date never breaks in the middle
   li.appendChild(meta);
-  if (candidate.status === "owned") {
-    li.appendChild(
-      _el(
-        "p",
-        "own-account-balance",
-        `Estimated balance: ${formatEur(candidate.estimated_balance)}`
-      )
-    );
-  }
-  if (missingData) {
-    li.appendChild(
-      _el(
-        "p",
-        "own-account-missing",
-        `Missing data: at least ${formatEur(candidate.unseen_income)} reached this account ` +
-          "from outside. Import its statement."
-      )
-    );
-  }
-
   const actions = _el("div", "own-account-actions");
-  const decide = (owned) => () => {
-    _reopened.delete(candidate.iban);
-    _openGroups.add(owned ? "owned" : "not_owned"); // keep the card just decided in view
-    _disableAll(root);
-    ctx.handlers.onDecide(candidate, owned).catch(ctx.handlers.onError);
-  };
-  if (candidate.status === "pending" || _reopened.has(candidate.iban)) {
-    actions.appendChild(_button("Mine", "acc-button--primary own-account-button--mine", decide(true)));
-    actions.appendChild(_button("Not mine", "own-account-button--not-mine", decide(false)));
-  } else {
-    const status =
-      candidate.status === "owned" ? "Marked as yours" : "Counted as money from outside";
-    actions.appendChild(_el("span", "own-account-status", status));
-    if (candidate.status === "owned") {
-      actions.appendChild(
-        _button("Import its statement", "acc-button--small own-account-import", () =>
-          ctx.handlers.onImport()
-        )
-      );
-    }
-    actions.appendChild(
-      _button("Change", "acc-button--small own-account-button--change", () => {
-        _reopened.add(candidate.iban);
-        ctx.rerender();
-      })
-    );
-  }
+  actions.appendChild(
+    _button("Import its statement", "acc-button--small own-account-import", () =>
+      ctx.handlers.onImport()
+    )
+  );
   li.appendChild(actions);
   return li;
-}
-
-/** How many cards in each group need the user: a decision, or a statement to fill a gap. */
-function _attention(model) {
-  return {
-    pending: model.candidates.filter((c) => c.status === "pending").length,
-    owned: model.candidates.filter((c) => c.status === "owned" && !_isZero(c.unseen_income))
-      .length,
-  };
 }
 
 /**
@@ -308,48 +238,30 @@ function _attention(model) {
  * @param {HTMLDetailsElement} section
  * @param {{statementAccounts: Array<object>, candidates: Array<object>,
  *   unlinkedFiles: Array<object>, aliases: Object<string, string>}} model
- * @param {{onToggleFile: Function, onDecide: Function, onRename: Function,
- *   onImport: Function, onError: Function}} handlers
+ * @param {{onToggleFile: Function, onRename: Function, onImport: Function,
+ *   onError: Function}} handlers
  * @param {{expandAttention?: boolean}} options -- true right after a file was loaded: open
- *   the section and every group that needs attention.
+ *   the section and the "Might be yours" group when it has accounts.
  */
 export function renderAccounts(section, model, handlers, { expandAttention = false } = {}) {
   const groupsEl = section.querySelector("#accounts-groups");
   const emptyEl = section.querySelector("#accounts-empty");
-  const badgeEl = section.querySelector("#accounts-attention");
-  const attention = _attention(model);
-  const attentionTotal = attention.pending + attention.owned;
   const ctx = {
     model,
     handlers,
     rerender: () => renderAccounts(section, model, handlers),
   };
 
-  if (expandAttention) {
-    if (attentionTotal > 0) {
-      section.open = true;
-    }
-    for (const id of ["pending", "owned"]) {
-      if (attention[id] > 0) {
-        _openGroups.add(id);
-      }
-    }
+  if (expandAttention && model.candidates.length > 0) {
+    section.open = true;
+    _openGroups.add("maybe");
   }
-
-  badgeEl.hidden = attentionTotal === 0;
-  badgeEl.textContent =
-    attentionTotal === 1 ? "1 needs attention" : `${attentionTotal} need attention`;
 
   const cardsByGroup = {
     statement: model.statementAccounts.map((a) => (root) => _statementCard(root, ctx, a)),
-    pending: [],
-    owned: [],
-    not_owned: [],
+    maybe: model.candidates.map((c) => () => _candidateCard(ctx, c)),
     unlinked: [],
   };
-  for (const c of model.candidates) {
-    cardsByGroup[c.status].push((root) => _candidateCard(root, ctx, c));
-  }
   const empty = GROUPS.every((g) => cardsByGroup[g.id].length === 0) &&
     model.unlinkedFiles.length === 0;
   emptyEl.hidden = !empty;
@@ -377,16 +289,11 @@ export function renderAccounts(section, model, handlers, { expandAttention = fal
     const summary = _el("summary", "group-summary");
     summary.appendChild(_el("span", "group-label", group.label));
     summary.appendChild(_el("span", "count", String(count)));
-    if (attention[group.id] > 0) {
-      const dot = _el("span", "dot");
-      dot.setAttribute("aria-label", "needs attention");
-      summary.appendChild(dot);
-    }
     details.appendChild(summary);
+    if (group.note) {
+      details.appendChild(_el("p", "group-note", group.note));
+    }
     if (isUnlinked) {
-      details.appendChild(
-        _el("p", "group-note", "Linked to their account after the next successful run.")
-      );
       details.appendChild(_fileList(ctx, model.unlinkedFiles));
     } else {
       const list = _el("ul", "accounts-list");
@@ -402,6 +309,5 @@ export function renderAccounts(section, model, handlers, { expandAttention = fal
 /** Forgets session-only UI state (tests reset between phases through a reload anyway). */
 export function resetAccountsState() {
   _openGroups.clear();
-  _reopened.clear();
   _editingKey = null;
 }

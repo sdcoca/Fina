@@ -1,7 +1,7 @@
 """Section 1: the net-worth bridge (spec section 9).
 
-Implements: R-9.1..R-9.11, R-9.13..R-9.15. R-9.12 (the per-asset realized/unrealized P&L
-cross-check) is D2, not implemented in this iteration.
+Implements: R-9.1..R-9.11, R-9.14, R-9.15 (R-9.13 retired 2026-09-27). R-9.12 (the per-asset
+realized/unrealized P&L cross-check) is D2, not implemented in this iteration.
 """
 
 from __future__ import annotations
@@ -13,13 +13,7 @@ from datetime import date as _date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
-from fina.models import (
-    OWN_UNVERIFIED_INSTITUTION,
-    SAVINGS_FLOW_ELIGIBLE_TYPES,
-    LedgerEntry,
-    MovementType,
-    Warning,
-)
+from fina.models import SAVINGS_FLOW_ELIGIBLE_TYPES, LedgerEntry, MovementType, Warning
 from fina.reconciliation import anchor_at, sort_key
 
 #: R-9.3/R-9.4: no price feed exists yet (D1), so open positions are valued at their FIFO
@@ -49,9 +43,6 @@ class Section1Period:
     real_net_worth: Decimal
     #: R-9.14: the part of `real_net_worth` that is open positions valued at purchase cost.
     positions_at_cost: Decimal
-    #: R-9.13: the part of `real_net_worth` held in own accounts with no statement (R-3.9
-    #: mirrors, `status="estimated"`) -- estimated, not measured (CLAUDE.md rule 11).
-    estimated_net_worth: Decimal
     completeness: Completeness
     savings_flow: Decimal
     #: R-9.15: balances accounts already held when their first statement starts, counted as
@@ -244,14 +235,6 @@ def opening_balances(
     return out
 
 
-def estimated_net_worth(entries: Sequence[LedgerEntry], as_of: _date) -> Decimal:
-    """R-9.13: `real_net_worth` restricted to the `OWN_UNVERIFIED_INSTITUTION` accounts -- the
-    estimated share of the total, reported alongside it rather than hidden inside it."""
-    return real_net_worth(
-        [e for e in entries if e.institution == OWN_UNVERIFIED_INSTITUTION], as_of
-    )
-
-
 def contribution(
     movement_type: MovementType,
     cash_effect_eur: Decimal,
@@ -360,7 +343,6 @@ def compute_section1(entries: Sequence[LedgerEntry]) -> tuple[Section1Period, ..
                 is_partial=is_partial,
                 real_net_worth=rnw,
                 positions_at_cost=positions_at_cost(entries, as_of),
-                estimated_net_worth=estimated_net_worth(entries, as_of),
                 completeness=_POSITIONS_AT_COST,
                 savings_flow=flow,
                 opening_balances=opening,

@@ -39,7 +39,6 @@ def test_to_chart_rows_exact_display_values_for_all_four_fields() -> None:
         is_partial=False,
         real_net_worth=Decimal("111.111"),
         positions_at_cost=Decimal("555.555"),
-        estimated_net_worth=Decimal("666.666"),
         completeness="positions_at_cost",
         savings_flow=Decimal("444.444"),
         opening_balances=Decimal("777.777"),
@@ -52,6 +51,5 @@ def test_to_chart_rows_exact_display_values_for_all_four_fields() -> None:
     assert row.gap_display == "333.33"
     assert row.savings_flow_display == "444.44"
     assert row.positions_at_cost_display == "555.56"
-    assert row.estimated_display == "666.67"
     assert row.opening_balances_display == "777.78"
     assert (row.month, row.month_label) == ("2027-03", "Mar 2027")

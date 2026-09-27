@@ -258,26 +258,23 @@ contain); code, comments, test names and docs are English.
 
 | ID | Test | Rules |
 |---|---|---|
-| T-300 | IBAN match → internal, `is_external_flow=False` | R-3.4(1), R-3.5 |
-| T-301 | Unknown IBAN → external | R-3.4(3) |
-| T-302 | No IBAN + holder-name match → internal | R-3.4(2) |
-| T-303 | No IBAN + different name → external | R-3.4(3) |
-| T-304 | Cross-file: broker row classified via the bank file's declaration | R-3.1, R-3.2, §12.3 |
-| T-305 | Direction: positive → `INTERNAL_TRANSFER_IN`, negative → `_OUT` | R-3.5 |
-| T-306 | Internal transfer with zero cash effect raises `ValidationError` | R-3.5 |
+| T-300 | A transfer carrying the IBAN of a supplied account stays external, type kept, `is_external_flow=True` (revised 2026-09-27) | R-3.4 |
+| T-301 | Unknown IBAN → external | R-3.4 |
+| T-302 | No IBAN + the owner's name (any spelling) → external (revised 2026-09-27) | R-3.4 |
+| T-303 | No IBAN + another name, or no name → external | R-3.4 |
+| T-304 | Cross-file: all six broker fixture transfers external, broker `savings_flow` +28420.00 | R-3.4, §12.3 |
+| T-305 | Withdrawals keep their type; every entry is kept, in order | R-3.4 |
+| T-306 | A zero transfer stays an ordinary external row (R-3.5's internal-only check retired) | R-3.5 |
 | T-307 | Same IBAN, two different holders → `AccountConflictError` | R-3.3 |
-| T-308 | External row whose name matches an owned holder → R-3.6 warning emitted, still external, message includes the counterparty IBAN | R-3.6 |
-| T-308a | R-3.6 rows sharing a counterparty IBAN (normalized, any name spelling, any file) collapse into one warning per account, first-seen order, listing count and every `file:row` | R-3.6 |
+| T-308 | *(retired 2026-09-27 with R-3.6)* | — |
 | T-309 | Manifest records the exact `owned_accounts` used | R-3.7 |
-| T-310 | Classification is idempotent (running the pass twice changes nothing) | R-1.20 |
-| T-311 | Non-transfer movement types are left with `is_external_flow=None` | R-2.3 |
+| T-310 | Classification is deterministic and idempotent (running the pass twice changes nothing) | R-1.20 |
+| T-311 | Non-transfer movement types are left untouched | R-2.3 |
 | T-312 | Same IBAN, same holder in another word order → no conflict; a genuinely different holder still conflicts | R-3.3 |
-| T-313 | Confirmation file: sniff by format marker only; `owned` → `user_confirmed` declaration; `not_owned` normalized; each malformed field / wrong version / duplicate IBAN → `ParseError` with its position | R-3.8 |
-| T-314 | Candidates: one per IBAN, every row, totals in/out, first/last date, name spellings, first-seen order, status pending/owned/not_owned; statement-backed IBANs, IBAN-less rows, other names and non-transfer types excluded | R-3.8 |
-| T-315 | `not_owned` stays external and is no longer warned; `owned` becomes internal by IBAN with no warning | R-3.6, R-3.8 |
-| T-316 | Mirror leg: opposite type, negated amounts, `own_unverified` account by IBAN, `estimated`, source row kept, no fee/tax; none without a confirmation or once a statement declares the IBAN | R-3.9 |
-| T-317 | Zero floor: unseen-income `EXTERNAL_DEPOSIT` for exactly the shortfall, in R-1.22 order regardless of input order; none while the balance stays ≥ 0 | R-3.9 |
-| T-318 | End to end: confirming an account leaves every tracked balance and the gap unchanged month by month, estimated ≥ 0; rejecting it changes no figure | R-3.9, R-9.9, R-9.13 |
+| T-313 | Account-names file: sniff by format marker only; declares nothing; versions 1 and 2 read with their decisions ignored (an old file changes no figure); wrong/missing version and malformed `aliases` → `ParseError` on row 0 with every field pinned | R-3.8 |
+| T-314 | Candidates: one per IBAN, every row, totals in/out (Decimal), first/last date, name spellings, first-seen order; statement-backed IBANs, IBAN-less rows, other names, nameless rows and non-transfer types excluded; a candidate changes no figure; manifest records them; broker fixture alone → one candidate | R-3.8 |
+| T-315..T-318 | *(retired 2026-09-27 with R-3.6/R-3.9)* | — |
+| T-319 | Both legs of a transfer between two supplied accounts cancel (net worth, savings and return equal to the run without the transfer); one leg alone moves net worth and savings by the same amount, return unchanged | R-3.4, R-9.9 |
 
 ### 7.2 Reconciliation (§8)
 
@@ -325,7 +322,7 @@ contain); code, comments, test names and docs are English.
 | T-415 | Every emitted figure is `Decimal` | R-9.11, R-1.1 |
 | T-416 | Empty ledger → empty series, no exception | R-1.18 |
 | T-417 | Single-entry ledger → one period, `gap == 0` at `t0` | R-9.7 |
-| T-418 | `estimated_net_worth` sums only `own_unverified` accounts and is reported per period, in the manifest and (when non-zero) by the CLI | R-9.13, R-11.5 |
+| T-418 | *(retired 2026-09-27 with R-9.13)* | — |
 | T-419 | Positions at cost: FIFO (oldest lots first), exact remainder on a partial lot and exact release on full consumption, per asset, R-1.22 order and `as_of`, `TECHNICAL_ADJUSTMENT` ignored, a buy leaves net worth unchanged, an unmatched sale warns once and values nothing; fixture broker 21937.82 cash + 6538.246667 at cost | R-9.3, R-9.4, R-9.14 |
 | T-420 | Opening balances: fixture bank already held 1000.00 before its first row; baseline = first declared balance, every move up to it; a later account adds its opening to savings in its month (return stays 0); the first month never counts it twice; accounts without declared balances have none | R-9.8, R-9.15 |
 
@@ -345,9 +342,10 @@ contain); code, comments, test names and docs are English.
 | T-507 | Manifest contains input SHA-256s, owned accounts, warnings, version, series | R-11.5 |
 | T-508 | Two runs → byte-identical manifests (also G-7) | R-1.20 |
 | T-509 | `sniff_adapter_name` recognizes each fixture and returns `None` (never raising) on an unrecognized file; a differential check that it agrees with `_select_adapter` on both the recognized and unrecognized cases | WP-10 |
-| T-520 | App bridge: `candidates` carry every R-3.8 field as rounded strings, `summary.estimated` is the rounded R-9.13 figure (None when zero), R-3.6 warnings are left out of `warnings` (`Warning.rule`); manifest and chart stay byte-identical to the CLI with a confirmation file | R-1.24, R-3.8, R-9.13 |
-| T-521 | App, 390px light and dark: a pending account is listed (not warned); "Mine" writes one confirmation file, re-runs and shows the estimate, the missing-data note and the native figures; a reload shows it from the cache; "Change" → "Not mine" rewrites the same single file; no horizontal scroll | R-3.8, R-3.9 |
-| T-522 | Confirmation-file helpers: merge keeps the latest decision per IBAN (restore consolidation), a decision replaces in place, round trip, unreadable file → no decisions | R-3.8 |
+| T-520 | App bridge: `candidates` carry every R-3.8 field as rounded strings, every warning is kept, no `summary.estimated`; manifest and chart stay byte-identical to the CLI with an account-names file | R-1.24, R-3.8 |
+| T-521 | App, 390px light and dark: the broker fixture alone opens "Might be yours" with its one account (transfers, totals, dates, note, only an "Import its statement" button, which opens the file picker); the figures are the native CLI's; a rename writes the version 3 names file and changes no figure; a reload shows everything from the cache without recomputing; no horizontal scroll | R-3.8 |
+| T-522 | Names-file helpers: merge keeps the current name per account (restore consolidation), rename and blank-name removal, version 3 round trip; unreadable, foreign, version 1 and version 2 files → only their valid names | R-3.8 |
+| T-523 | A cached result stamped with another engine (fina wheel SHA-256) is never shown: reopening recomputes it once and re-stamps it | CLAUDE.md rule 12 |
 
 ### 8.2 Property-based (Hypothesis)
 
@@ -443,15 +441,15 @@ packages land; a work package is not done until its rules appear here.
 | R-2.15 | T-503 |
 | R-2.16 | T-069, T-069a |
 | R-2.17 | T-057, T-070 |
-| R-3.1 | T-304 |
-| R-3.2 | T-304 |
+| R-3.1 | T-309 |
+| R-3.2 | T-314 |
 | R-3.3 | T-307, T-312 |
-| R-3.4 | T-300..T-303 |
-| R-3.5 | T-300, T-305, T-306 |
-| R-3.6 | T-308, T-308a, T-315 |
+| R-3.4 | T-300..T-305, T-319 |
+| R-3.5 | T-306 (retired rule) |
+| R-3.6 | — (retired) |
 | R-3.7 | T-309, T-507 |
-| R-3.8 | T-313, T-314, T-315, T-520, T-521, T-522 |
-| R-3.9 | T-316, T-317, T-318, T-521 |
+| R-3.8 | T-313, T-314, T-520, T-521, T-522 |
+| R-3.9 | — (retired) |
 | R-4.1 | T-103 (FX metadata stored, not applied) |
 | R-4.2 | (deferred — no test until an converting adapter exists) |
 | R-5.1 | T-100, T-200 |
@@ -512,7 +510,7 @@ packages land; a work package is not done until its rules appear here.
 | R-9.10 | T-413 |
 | R-9.11 | T-415 |
 | R-9.12 | (deferred D2) |
-| R-9.13 | T-318, T-418, T-520 |
+| R-9.13 | — (retired) |
 | R-9.14 | T-419 |
 | R-9.15 | T-420 |
 | R-10.1 | T-705 |

@@ -5,4 +5,4 @@ pyodide-core-314.0.6.tar.bz2	314.0.6	pyodide-core	1016c31e39ce3764d9a418cbb491a3
 micropip-0.11.1-py3-none-any.whl	0.11.1	wheel	768de165adb8e66906039d8fec4127a57f522dfdf8e6fbff877a4616941ecfd3
 openpyxl-3.1.5-py2.py3-none-any.whl	3.1.5	wheel	5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2
 et_xmlfile-2.0.0-py3-none-any.whl	2.0.0	wheel	7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa
-fina-0.1.0-py3-none-any.whl	0.1.0	fina-wheel	73e5233cf224ba08d1d83dff57f2cbe5fc5e6307e84011c38a46d7578e32443b
+fina-0.1.0-py3-none-any.whl	0.1.0	fina-wheel	249cb29e68c5a6e71f8f387c3912f00f38dd119dadf871a537ed5f0730502369

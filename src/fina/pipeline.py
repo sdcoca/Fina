@@ -19,7 +19,6 @@ from fina.classification import (
     OwnershipCandidate,
     classify_entries,
     collect_owned_accounts,
-    mirror_unverified_transfers,
     ownership_candidates,
 )
 from fina.errors import ParseError
@@ -129,7 +128,6 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
     all_accounts: list[AccountDeclaration] = []
     all_entries: list[LedgerEntry] = []
     all_warnings: list[Warning] = []
-    not_owned: set[str] = set()
     header_balances: dict[tuple[str, str], Decimal] = {}
 
     for file_path in files:
@@ -141,19 +139,11 @@ def run_pipeline(input_dir: Path, out_dir: Path | None = None) -> PipelineResult
         all_accounts.extend(parsed.accounts)
         all_entries.extend(parsed.entries)
         all_warnings.extend(parsed.warnings)
-        not_owned.update(parsed.not_owned)
         header_balances.update(_header_balances_for(adapter_name, file_path))
 
     owned_accounts = collect_owned_accounts(all_accounts)
-    classified_entries, classification_warnings = classify_entries(
-        all_entries, owned_accounts, not_owned
-    )
-    all_warnings.extend(classification_warnings)
-    # R-3.9: the estimated other leg of every transfer to/from a confirmed own account with no
-    # statement -- appended to the one ledger (CLAUDE.md rule 16), never kept aside.
-    estimated = mirror_unverified_transfers(classified_entries, owned_accounts)
-    candidates = ownership_candidates(all_entries, owned_accounts, not_owned, estimated)
-    ledger = classified_entries + estimated
+    ledger = classify_entries(all_entries)
+    candidates = ownership_candidates(ledger, owned_accounts)
 
     all_warnings.extend(reconcile(ledger, header_balances))
 
@@ -221,9 +211,6 @@ def manifest_dict(result: PipelineResult) -> dict[str, object]:
                 "total_out": str(c.total_out),
                 "first_date": c.first_date.isoformat(),
                 "last_date": c.last_date.isoformat(),
-                "status": c.status,
-                "estimated_balance": str(c.estimated_balance),
-                "unseen_income": str(c.unseen_income),
             }
             for c in result.ownership_candidates
         ],
@@ -234,7 +221,6 @@ def manifest_dict(result: PipelineResult) -> dict[str, object]:
                 "is_partial": p.is_partial,
                 "real_net_worth": str(p.real_net_worth),
                 "positions_at_cost": str(p.positions_at_cost),
-                "estimated_net_worth": str(p.estimated_net_worth),
                 "completeness": p.completeness,
                 "savings_flow": str(p.savings_flow),
                 "opening_balances": str(p.opening_balances),

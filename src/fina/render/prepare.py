@@ -37,7 +37,6 @@ def to_chart_rows(series: Sequence[Section1Period]) -> list[ChartRow]:
             gap_display=str(round_half_up(p.gap)),
             savings_flow_display=str(round_half_up(p.savings_flow)),
             positions_at_cost_display=str(round_half_up(p.positions_at_cost)),
-            estimated_display=str(round_half_up(p.estimated_net_worth)),
             opening_balances_display=str(round_half_up(p.opening_balances)),
         )
         for p in series

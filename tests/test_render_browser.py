@@ -73,7 +73,6 @@ def _sample_series() -> list[ChartRow]:
                 gap_display=f"{real - savings:.2f}",
                 savings_flow_display="123.45",
                 positions_at_cost_display="500.00",
-                estimated_display="80.00",
                 opening_balances_display="0.00",
             )
         )
@@ -114,7 +113,6 @@ def _worst_case_series() -> list[ChartRow]:
                 gap_display=f"{real - savings:.2f}",
                 savings_flow_display="-999999999.99",
                 positions_at_cost_display="999999999.99",
-                estimated_display="999999999.99",
                 opening_balances_display="-999999999.99",
             )
         )

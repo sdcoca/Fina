@@ -263,7 +263,6 @@ def test_bridge_run_is_byte_identical_to_the_native_cli_over_the_real_fixtures(
         "as_of": latest.as_of.isoformat(),
         "is_partial": latest.is_partial,
         "real_net_worth": str(round_half_up(latest.real_net_worth)),
-        "estimated": None,
         "positions_at_cost": str(round_half_up(latest.positions_at_cost)),
         "savings_only": str(round_half_up(latest.savings_only)),
         "gap": str(round_half_up(latest.gap)),
@@ -295,31 +294,21 @@ def test_bridge_run_is_byte_identical_to_the_native_cli_over_the_real_fixtures(
     assert result["candidates"] == []
 
 
-def test_bridge_run_with_a_confirmation_file_matches_the_native_cli(
+def test_bridge_run_with_a_names_file_lists_the_account_that_might_be_yours(
     tmp_path: Path, bridge_server: str
 ) -> None:
-    """R-3.8/R-3.9 through the bridge: the broker fixture alone plus a confirmation file that
-    marks its one pending account as owned. Manifest and chart stay byte-identical to the
-    native CLI; the candidate and the estimated share arrive as rounded display strings."""
+    """R-3.8 through the bridge: the broker fixture alone plus an account-names file. Manifest
+    and chart stay byte-identical to the native CLI; the account in the owner's name with no
+    statement arrives as a candidate with rounded display strings, and every warning is kept."""
     input_dir = tmp_path / "input"
     input_dir.mkdir()
     shutil.copyfile(BROKER_CSV, input_dir / BROKER_CSV.name)
-    decisions = {
-        "format": "fina-own-accounts",
-        "version": 1,
-        "accounts": [
-            {
-                "iban": "ES0000000000000000000202",
-                "holder_name": "LUCIA FERNANDEZ ORTIZ",
-                "owned": True,
-                "decided_on": "2026-09-25",
-            }
-        ],
-    }
-    (input_dir / "cuentas-propias.json").write_text(json.dumps(decisions), encoding="utf-8")
+    names = {"format": "fina-own-accounts", "version": 3, "aliases": {"trade_republic": "Broker"}}
+    (input_dir / "cuentas-propias.json").write_text(json.dumps(names), encoding="utf-8")
 
     native_out = tmp_path / "native_out"
     assert cli.main(["build", "--input", str(input_dir), "--out", str(native_out)]) == 0
+    native_result = run_pipeline(input_dir)
 
     with launch_chromium() as browser:
         context, page = _open_bridge_page(browser, bridge_server)
@@ -337,50 +326,19 @@ def test_bridge_run_with_a_confirmation_file_matches_the_native_cli(
     assert result["chart_html"].encode("utf-8") == (
         native_out / "section1_chart.html"
     ).read_bytes()
-    assert result["summary"]["estimated"] == "80.00"
+    assert result["warnings"] == [w.message for w in native_result.warnings]
+    assert "estimated" not in result["summary"]
     assert result["candidates"] == [
         {
             "iban": "ES0000000000000000000202",
             "holder_names": ["FERNANDEZ ORTIZ LUCIA"],
-            "status": "owned",
             "transfers": 4,
             "total_in": "25000.00",
             "total_out": "80.00",
             "first_date": "2023-03-10",
             "last_date": "2023-10-10",
-            "estimated_balance": "80.00",
-            "unseen_income": "25000.00",
         }
     ]
-
-
-def test_bridge_run_lists_pending_accounts_as_candidates_not_warnings(
-    tmp_path: Path, bridge_server: str
-) -> None:
-    input_dir = tmp_path / "input"
-    input_dir.mkdir()
-    shutil.copyfile(BROKER_CSV, input_dir / BROKER_CSV.name)
-    native_result = run_pipeline(input_dir)
-    assert any(w.rule == "R-3.6" for w in native_result.warnings)
-
-    with launch_chromium() as browser:
-        context, page = _open_bridge_page(browser, bridge_server)
-        try:
-            result = _run_task(
-                page,
-                "(filesB64) => window.__finaStartRun(filesB64)",
-                [_encode_file(BROKER_CSV)],
-            )
-        finally:
-            context.close()
-
-    assert result["warnings"] == [
-        w.message for w in native_result.warnings if w.rule != "R-3.6"
-    ]
-    assert [(c["iban"], c["status"]) for c in result["candidates"]] == [
-        ("ES0000000000000000000202", "pending")
-    ]
-    assert result["summary"]["estimated"] is None
 
 
 # ---------------------------------------------------------------------------

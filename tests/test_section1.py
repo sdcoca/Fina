@@ -11,7 +11,7 @@ from hypothesis import strategies as st
 
 from builders import BANK_XLSX, BROKER_CSV
 from fina.adapters import bank_xlsx, broker_csv
-from fina.classification import classify_entries, collect_owned_accounts
+from fina.classification import classify_entries
 from fina.models import LedgerEntry, MovementType, Warning
 from fina.section1 import (
     Section1Period,
@@ -401,29 +401,23 @@ def test_t406_dividend_and_interest_contribute_zero() -> None:
 
 
 def test_t407_broker_savings_flow_total_matches_the_cross_file_oracle() -> None:
-    """§12.3: broker rows carrying the bank fixture's IBAN are internal (contribute 0); the
-    two rows carrying the unmatched IBAN are external. Total = -3000.00 + 6500.00 = +3500.00.
+    """§12.3 (revised 2026-09-27): every broker transfer is external, whether its IBAN is the
+    bank fixture's or unknown. Total = 8000 + 12000 + 5000 - 80 - 3000 + 6500 = +28420.00.
     """
-    bank_result = bank_xlsx.parse(BANK_XLSX)
-    broker_result = broker_csv.parse(BROKER_CSV)
-    owned = collect_owned_accounts([*bank_result.accounts, *broker_result.accounts])
-    classified, _warnings = classify_entries(broker_result.entries, owned)
+    classified = classify_entries(broker_csv.parse(BROKER_CSV).entries)
 
     total = sum(
         (contribution(e.movement_type, e.cash_effect_eur, e.is_external_flow) for e in classified),
         start=Decimal("0"),
     )
-    assert total == Decimal("3500.00")
+    assert total == Decimal("28420.00")
 
 
 def test_t408_bank_savings_flow_for_2027_03_matches_the_oracle() -> None:
-    """§12.1: every row is EXPENSE or an external EXTERNAL_DEPOSIT; MORENO SANZ DAVID matches
-    no owned account. Total = +6500.00 - 120.50 - 430.00 - 650.25 - 38.90 - 64.20 - 12.40 =
-    +5183.75.
+    """§12.1: every row is EXPENSE or an external EXTERNAL_DEPOSIT. Total = +6500.00 - 120.50 -
+    430.00 - 650.25 - 38.90 - 64.20 - 12.40 = +5183.75.
     """
-    bank_result = bank_xlsx.parse(BANK_XLSX)
-    owned = collect_owned_accounts(list(bank_result.accounts))
-    classified, _warnings = classify_entries(bank_result.entries, owned)
+    classified = classify_entries(bank_xlsx.parse(BANK_XLSX).entries)
 
     assert savings_flow(classified, 2027, 3) == Decimal("5183.75")
 

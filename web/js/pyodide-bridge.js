@@ -33,6 +33,7 @@ const WHEEL_PATHS = {
 const BRIDGE_PY_URL = new URL("../py/bridge.py", import.meta.url).href;
 
 let _pyodidePromise = null;
+let _engineId = null;
 
 async function _bootPyodide() {
   if (typeof loadPyodide !== "function") {
@@ -99,6 +100,26 @@ export async function sniffFile(file) {
   } finally {
     bridge.destroy();
   }
+}
+
+/**
+ * WP-23: which engine computes the figures -- the vendored fina wheel's SHA-256, hex. Read
+ * from the (precached) wheel file itself, so it needs no Pyodide boot and changes exactly when
+ * the engine does. `app.js` stores it with every cached result and never shows a result
+ * another engine computed.
+ *
+ * @returns {Promise<string>}
+ */
+export async function engineId() {
+  if (_engineId === null) {
+    const response = await fetch(WHEEL_PATHS.fina);
+    if (!response.ok) {
+      throw new Error(`Could not read the engine (${response.status}).`);
+    }
+    const digest = await crypto.subtle.digest("SHA-256", await response.arrayBuffer());
+    _engineId = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  return _engineId;
 }
 
 /**

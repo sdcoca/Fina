@@ -4,10 +4,10 @@ Implements: R-10.1..R-10.8.
 
 WP-22a (2026-09-26, the project owner's mock iterations v2-v4, approved at a real 390px phone
 width): the chart is the page's summary. It shows three figures as a legend with their latest
-value — "Net worth (cash and other assets)", "Total Savings (cash contributions)" and "Total
-Return of Investments" (the signed band between the two lines) — above a plot drawn edge to
-edge, with the y-axis labels inside the plot and at most five x-axis labels. English
-throughout; the words "gap"/"hueco" never appear in displayed text. While open positions are
+value — "Net worth (cash and other assets)", "Total Savings (money into your imported
+accounts)" and "Total Return of Investments" (the signed band between the two lines) — above a
+plot drawn edge to edge, with the y-axis labels inside the plot and at most five x-axis labels.
+English throughout; the words "gap"/"hueco" never appear in displayed text. While open positions are
 valued at purchase cost (R-9.4/R-9.14) a note says so in plain words.
 
 Carried over unchanged from the approved Q-G port: the band coloured by the sign of the return
@@ -75,7 +75,6 @@ class ChartRow:
     gap_display: str
     savings_flow_display: str
     positions_at_cost_display: str
-    estimated_display: str
     opening_balances_display: str
 
 
@@ -350,23 +349,18 @@ def _points_payload(rows: Sequence[ChartRow], points: Sequence[_Point]) -> str:
 
 
 def _legend_html(last: ChartRow) -> str:
-    """The three figures, each with its latest value (the owner's labels, verbatim)."""
-    estimated = ""
-    if not _is_zero(last.estimated_display):
-        estimated = (
-            f'<span class="lg-extra">incl. {html.escape(_format_eur(last.estimated_display))} '
-            "estimated</span>"
-        )
+    """The three figures, each with its latest value (the owner's labels; the savings one
+    names what it counts since every transfer is money in or out, R-3.4)."""
     sign_class = "loss" if last.gap_display.startswith("-") else "gain"
     return (
         '<div class="legend">\n'
         '  <div class="legend-item"><span class="swatch"></span>'
-        '<span class="lg-name">Net worth <small>(cash and other assets)</small>'
-        f"{estimated}</span>"
+        '<span class="lg-name">Net worth <small>(cash and other assets)</small></span>'
         f'<b class="lg-value">{html.escape(_format_eur(last.real_net_worth_display))}</b>'
         "</div>\n"
         '  <div class="legend-item"><span class="swatch dashed"></span>'
-        '<span class="lg-name">Total Savings <small>(cash contributions)</small></span>'
+        '<span class="lg-name">Total Savings '
+        "<small>(money into your imported accounts)</small></span>"
         f'<b class="lg-value">{html.escape(_format_eur(last.savings_only_display))}</b>'
         "</div>\n"
         f'  <div class="legend-item {sign_class}"><span class="chip"></span>'
@@ -492,7 +486,6 @@ h1 {{ font-size: 17px; line-height: 1.25; margin: 0; }}
 .legend-item {{ display: flex; align-items: center; gap: 8px; }}
 .lg-name {{ flex: 1 1 auto; min-width: 0; }}
 .lg-name small {{ font-size: 11.5px; color: var(--muted); }}
-.lg-extra {{ display: block; font-size: 11.5px; color: var(--muted); }}
 .lg-value {{ font-variant-numeric: tabular-nums; white-space: nowrap; }}
 .legend-item.gain .lg-value {{ color: var(--gain-line); }}
 .legend-item.loss .lg-value {{ color: var(--loss-line); }}

@@ -58,7 +58,6 @@ def _row(**overrides: object) -> ChartRow:
         "gap_display": "10.00",
         "savings_flow_display": "5.00",
         "positions_at_cost_display": "0.00",
-        "estimated_display": "0.00",
         "opening_balances_display": "0.00",
     }
     defaults.update(overrides)
@@ -317,7 +316,8 @@ def test_legend_names_the_three_figures_with_their_latest_values() -> None:
         '<span class="lg-name">Net worth <small>(cash and other assets)</small></span>'
         '<b class="lg-value">390,860.92 €</b></div>\n'
         '  <div class="legend-item"><span class="swatch dashed"></span>'
-        '<span class="lg-name">Total Savings <small>(cash contributions)</small></span>'
+        '<span class="lg-name">Total Savings '
+        "<small>(money into your imported accounts)</small></span>"
         '<b class="lg-value">219,601.52 €</b></div>\n'
         '  <div class="legend-item gain"><span class="chip"></span>'
         '<span class="lg-name">Total Return of Investments</span>'
@@ -331,12 +331,6 @@ def test_a_negative_return_is_signed_and_marked_as_a_loss() -> None:
     legend = section1_chart._legend_html(_row(gap_display="-3500.00"))
     assert '<div class="legend-item loss"><span class="chip"></span>' in legend
     assert '<b class="lg-value">-3,500.00 €</b>' in legend
-
-
-def test_the_estimated_share_is_named_under_net_worth_only_when_there_is_one() -> None:
-    legend = section1_chart._legend_html(_row(estimated_display="43050.00"))
-    assert '<span class="lg-extra">incl. 43,050.00 € estimated</span>' in legend
-    assert "lg-extra" not in section1_chart._legend_html(_row())
 
 
 def test_the_cost_note_appears_only_while_investments_are_held_at_cost() -> None:

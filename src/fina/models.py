@@ -73,7 +73,9 @@ EXTERNAL_FLOW_APPLICABLE_TYPES = frozenset(
     }
 )
 
-#: The pre-classification "transfer-shaped" types that R-3.4's second pass may rewrite.
+#: The "transfer-shaped" types: money moved to or from another account, always counted as an
+#: external flow (R-3.4). `INTERNAL_TRANSFER_IN`/`_OUT` stay in the taxonomy (R-2.3) but no
+#: adapter or pass produces them in this iteration.
 TRANSFER_SHAPED_TYPES = frozenset({MovementType.EXTERNAL_DEPOSIT, MovementType.EXTERNAL_WITHDRAWAL})
 
 
@@ -131,25 +133,13 @@ class Warning:
     message: str
     source_file: str | None = None
     source_row: int | None = None
-    #: The spec rule that raised it, when a consumer presents that rule's warnings elsewhere
-    #: (R-1.24): the app lists R-3.6 accounts as ownership candidates instead (R-3.8).
+    #: The spec rule that raised it (R-1.24), so a consumer can tell warnings apart.
     rule: str | None = None
-
-
-#: R-3.8: `AccountDeclaration.institution` of an account the user confirmed as their own in the
-#: own-accounts confirmation file, instead of proving it with a statement for that account.
-USER_CONFIRMED_INSTITUTION = "user_confirmed"
-
-#: R-3.9: `LedgerEntry.institution` of the estimated mirror rows standing in for an account the
-#: user confirmed as their own but supplied no statement for.
-OWN_UNVERIFIED_INSTITUTION = "own_unverified"
 
 
 @dataclass(frozen=True)
 class AccountDeclaration:
-    """An account the user owns (R-2.8): proven by supplying a statement for it, or confirmed
-    explicitly in the own-accounts confirmation file (R-3.8, institution
-    ``USER_CONFIRMED_INSTITUTION``)."""
+    """An account the user owns (R-2.8), proven by supplying a statement for it."""
 
     institution: str
     iban_or_account: str | None
@@ -247,9 +237,6 @@ class AdapterResult:
     entries: tuple[LedgerEntry, ...]
     accounts: tuple[AccountDeclaration, ...]
     warnings: tuple[Warning, ...]
-    #: R-3.8: normalized IBANs the user declared NOT their own (only the own-accounts
-    #: confirmation file ever sets this).
-    not_owned: tuple[str, ...] = ()
 
 
 def check_duplicate_transaction_ids(id_rows: Sequence[tuple[str, int]]) -> None:
