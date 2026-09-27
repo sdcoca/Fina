@@ -688,3 +688,20 @@ sign/zero helpers by `removeprefix`/set checks, so no unreachable fallback is le
 | `fina.render.section1_chart.x__y_ticks__mutmut_3` | `(max - min) / step` → `* step` | **Timeout, not a survivor**: builds millions of ticks; counted as caught. |
 
 Bank rule 3 (`TARJ`) and the warning-free R-7.11 fallback (2026-09-27): every mutant killed.
+
+## WP-23 (`classification.py` — every transfer external; `own_accounts_json.py` — names file only; `section1.py`/`cli.py`/`pipeline.py` — estimated figure removed)
+
+Full run: 3099 mutants, 3039 killed, 4 timeouts, 56 survivors. `classification.py`: every
+mutant killed. The functions behind two earlier entries are gone
+(`x__counterparty_key__mutmut_3`, `x_mirror_unverified_transfers__mutmut_20`: R-3.6 and R-3.9
+were retired). Two real gaps were found and closed: the rewrite of `tests/test_own_accounts.py`
+had dropped the tests covering the CLI's "investments at purchase cost" line
+(`x__build__mutmut_21..25`, now in `tests/test_cli.py`) and the manifest's warning keys
+(`x_manifest_dict__mutmut_25..30`, now `test_manifest_records_each_warning_with_its_exact_keys`);
+both re-run as killed. `cli.py`'s three encoding equivalents are back at
+`x__build__mutmut_35`, `x__build__mutmut_37`, `x__build__mutmut_42` now that the "of which
+estimated" line is gone.
+
+| Mutant | Change | Why it survives |
+|---|---|---|
+| `fina.adapters.own_accounts_json.x__fail__mutmut_13` | `ensure_ascii=False` → `ensure_ascii=None` | **Equivalent** — the former `x__fail__mutmut_12`, renumbered because `_fail` lost its `row` parameter: `json.dumps` only tests `ensure_ascii` for truthiness. |

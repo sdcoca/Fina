@@ -13,6 +13,7 @@ import pytest
 from builders import BANK_XLSX, BROKER_CSV
 from fina.errors import DuplicateSourceError, ParseError
 from fina.io_utils import sha256_of_file
+from fina.models import Warning
 from fina.pipeline import PipelineResult, manifest_dict, run_pipeline
 from fina.section1 import Section1Period
 
@@ -282,6 +283,26 @@ def test_manifest_series_field_values_are_exact_and_not_swapped(tmp_path: Path) 
     assert entry["savings_flow"] == "444.44"
     assert entry["positions_at_cost"] == "666.66"
     assert entry["opening_balances"] == "777.77"
+
+
+def test_manifest_records_each_warning_with_its_exact_keys() -> None:
+    """R-11.5: every warning, with its message and source pointers under their own keys."""
+    result = PipelineResult(
+        input_files=(),
+        owned_accounts=(),
+        entries=(),
+        warnings=(
+            Warning(message="first", source_file="a.xlsx", source_row=7, rule="R-8.5"),
+            Warning(message="second"),
+        ),
+        ownership_candidates=(),
+        series=(),
+        tool_version="0.0.0-test",
+    )
+    assert manifest_dict(result)["warnings"] == [
+        {"message": "first", "source_file": "a.xlsx", "source_row": 7},
+        {"message": "second", "source_file": None, "source_row": None},
+    ]
 
 
 def test_manifest_is_json_serializable() -> None:

@@ -259,3 +259,22 @@ def test_t506_validation_error_aborts_with_no_report_written(
     assert exit_code == 1
     assert not out_dir.exists() or list(out_dir.iterdir()) == []
     assert "error:" in capsys.readouterr().err
+
+
+def test_cli_names_the_investments_held_at_cost_only_when_there_are_some(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R-9.4/R-9.14: the broker fixture still holds positions (6538.246667 at cost); the bank
+    fixture holds none."""
+    broker_dir, bank_dir = tmp_path / "broker", tmp_path / "bank"
+    broker_dir.mkdir()
+    bank_dir.mkdir()
+    shutil.copyfile(BROKER_CSV, broker_dir / BROKER_CSV.name)
+    shutil.copyfile(BANK_XLSX, bank_dir / BANK_XLSX.name)
+    assert cli.main(["build", "--input", str(broker_dir), "--out", str(tmp_path / "o1")]) == 0
+    assert (
+        "  of which investments at purchase cost (prices not updated): 6538.25 EUR"
+        in capsys.readouterr().out.splitlines()
+    )
+    assert cli.main(["build", "--input", str(bank_dir), "--out", str(tmp_path / "o2")]) == 0
+    assert "of which investments" not in capsys.readouterr().out
