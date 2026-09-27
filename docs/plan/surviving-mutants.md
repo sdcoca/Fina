@@ -681,7 +681,10 @@ sign/zero helpers by `removeprefix`/set checks, so no unreachable fallback is le
 
 | Mutant | Change | Why it survives |
 |---|---|---|
-| `fina.section1.x__open_lots__mutmut_30`, `_31` | `while remaining > 0 and queue` → `or` / `>= 0` | **Timeout, not a survivor**: both loop forever once the queue empties; counted as caught. |
+| `fina.section1.x__open_lots__mutmut_30`, `fina.section1.x__open_lots__mutmut_31` | `while remaining > 0 and queue` → `or` / `>= 0` | **Timeout, not a survivor**: both loop forever once the queue empties; counted as caught. |
 | `fina.section1.x_opening_balances__mutmut_26` | `sum(..., start=Decimal("0"))` → no `start` | **Equivalent.** The summed range always contains the baseline entry itself, so the sum is never empty: `0 + Decimal` is the same `Decimal` the explicit start gives. |
 | `fina.render.section1_chart.x__x_label_step__mutmut_9` | `(first - 1) // step` → `/ step` | **Equivalent.** The label count `L//s − (F−1)//s` is an integer n; the float version is n − f with 0 ≤ f < 1, so `≤ 5` holds for both or for neither. |
-| `fina.render.section1_chart.x__x_labels_svg__mutmut_18`, `_21`, `_22` | `zip(rows, points, strict=True)` → `strict=None` / omitted / `False` | **Equivalent** — `points` is built one per row (`_build_points`), so the lengths always match; same reasoning as the chart's other `zip(..., strict=...)` survivors above. |
+| `fina.render.section1_chart.x__x_labels_svg__mutmut_18`, `fina.render.section1_chart.x__x_labels_svg__mutmut_21`, `fina.render.section1_chart.x__x_labels_svg__mutmut_22` | `zip(rows, points, strict=True)` → `strict=None` / omitted / `False` | **Equivalent** — `points` is built one per row (`_build_points`), so the lengths always match; same reasoning as the chart's other `zip(..., strict=...)` survivors above. |
+| `fina.render.section1_chart.x__y_ticks__mutmut_3` | `(max - min) / step` → `* step` | **Timeout, not a survivor**: builds millions of ticks; counted as caught. |
+
+Bank rules 3 and 13-16 (2026-09-27, R-7.10): every mutant killed.

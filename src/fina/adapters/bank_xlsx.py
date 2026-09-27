@@ -241,6 +241,21 @@ _RULE_BIZUM_DEVOLUCION_DE = re.compile(
 )
 _RULE_BIZUM_A_FAVOR_DE = re.compile(r"^BIZUM A FAVOR DE (?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$")
 _RULE_BIZUM_DE = re.compile(r"^BIZUM DE (?P<name>.+?)(?:,?\s*CONCEPTO\b.*)?$")
+# Rules 13-16 (owner's real export, 2026-09-27): wordings that made up ~190 "unrecognized
+# concept" warnings the owner could do nothing about. Each names what the movement is, so it is
+# classified by meaning, not by the amount's sign alone.
+# 13. A refund or a cancelled card payment/withdrawal: money coming back.
+_RULE_REFUND = re.compile(
+    r"^(?:DEVOLUCION COMPRA|ANUL(?:ACION)?[ .]\s*(?:COMPRA|PAGO MOVIL|REINTEGRO)"
+    r"|GESTION DEVOLUCIONES)\b"
+)
+# 14. Cash taken out at an ATM, and the ATM's fee: money leaving the tracked accounts.
+_RULE_CASH = re.compile(r"^(?:REINTEGRO|COMISION REINTEGRO|RETIRADA DE EFECTIVO)\b")
+# 15. Taxes paid by direct debit or form ("DOMICILIACION IMPUESTO: ...", "2024I.R.P.F.-.",
+# "2025IVA AUTOLIQUIDACION.").
+_RULE_TAX = re.compile(r"^(?:DOMICILIACION IMPUESTO|\d{4}\s*(?:I\.R\.P\.F|I\.?V\.?A\b))")
+# 16. A court-auction deposit: lodged, then released -- money parked and returned, not spent.
+_RULE_AUCTION_DEPOSIT = re.compile(r"^(?P<kind>CONSTITUCION|LIBERACION) DEPOSITO SUBASTAS\b")
 
 
 @dataclass(frozen=True)
@@ -259,7 +274,8 @@ def _match_concept(
         return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("TRANSACCION CONTACTLESS EN "):
         return _ConceptMatch(MovementType.EXPENSE, None), None
-    if normalized.startswith("COMPRA ") and "TARJETA" in normalized:
+    # "TARJ" covers both "TARJETA" and the abbreviated "TARJ. :*1234" of card purchases.
+    if normalized.startswith("COMPRA ") and "TARJ" in normalized:
         return _ConceptMatch(MovementType.EXPENSE, None), None
     if normalized.startswith("RECIBO "):
         return _ConceptMatch(MovementType.EXPENSE, None), None
@@ -292,6 +308,20 @@ def _match_concept(
     if match_bizum_de is not None:
         start, end = match_bizum_de.span("name")
         return _ConceptMatch(MovementType.EXTERNAL_DEPOSIT, trimmed[start:end]), None
+
+    if _RULE_REFUND.match(normalized):
+        return _ConceptMatch(MovementType.EXTERNAL_DEPOSIT, None), None
+    if _RULE_CASH.match(normalized) or _RULE_TAX.match(normalized):
+        return _ConceptMatch(MovementType.EXPENSE, None), None
+    auction = _RULE_AUCTION_DEPOSIT.match(normalized)
+    if auction is not None:
+        kind = auction.group("kind")
+        return _ConceptMatch(
+            MovementType.EXTERNAL_WITHDRAWAL
+            if kind == "CONSTITUCION"
+            else MovementType.EXTERNAL_DEPOSIT,
+            None,
+        ), None
 
     # R-7.11 (revised): a concept matching none of the named rules above is no longer a hard
     # failure. The project owner's own real export showed this bank inventing new wording

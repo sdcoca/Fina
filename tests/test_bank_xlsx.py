@@ -491,6 +491,83 @@ def test_transfer_names_leave_out_a_favor_de_and_a_comma_less_concepto(
     assert (entry.movement_type, entry.counterparty_name) == (movement_type, name)
 
 
+@pytest.mark.parametrize(
+    ("concepto", "amount", "movement_type"),
+    [
+        ("COMPRA EN TIENDA EJEMPLO, MADRID ES, TARJ. :*000001", "-5,00€", MovementType.EXPENSE),
+        ("COMPRA INTERNET EN APP EJEMPLO, MADRID, TARJ. :*000001", "-2,00€", MovementType.EXPENSE),
+        (
+            "DEVOLUCION COMPRA EN TIENDA, MADRID, TARJETA 0000000000000001 , COMISION 0,00",
+            "5,00€",
+            MovementType.EXTERNAL_DEPOSIT,
+        ),
+        (
+            "ANUL COMPRA INTERNET EN APP EJEMPLO, MADRID, TARJ. :*000001",
+            "2,00€",
+            MovementType.EXTERNAL_DEPOSIT,
+        ),
+        (
+            "ANULACION PAGO MOVIL EN BAR EJEMPLO, MADRID, TARJ. :*000001",
+            "3,00€",
+            MovementType.EXTERNAL_DEPOSIT,
+        ),
+        (
+            "ANUL.REINTEGRO, ATM:00000001, MADRID, TARJ. :*000001",
+            "3,95€",
+            MovementType.EXTERNAL_DEPOSIT,
+        ),
+        ("GESTION DEVOLUCIONES - INTERIOR BS", "1,00€", MovementType.EXTERNAL_DEPOSIT),
+        (
+            "REINTEGRO EN BANCO EJEMPLO, CIUDAD, TARJETA 0000000000000001",
+            "-50,00€",
+            MovementType.EXPENSE,
+        ),
+        (
+            "COMISION REINTEGRO EN BANCO EJEMPLO, CIUDAD, TARJETA 0000000000000001",
+            "-4,00€",
+            MovementType.EXPENSE,
+        ),
+        (
+            "RETIRADA DE EFECTIVO EN CAJERO AUTOMATICO 000000000001 EL 06/08/2026",
+            "-20,00€",
+            MovementType.EXPENSE,
+        ),
+        ("DOMICILIACION IMPUESTO: 2.024 I.R.P.F.-", "-100,00€", MovementType.EXPENSE),
+        ("2024I.R.P.F.-.", "-100,00€", MovementType.EXPENSE),
+        ("2025IVA AUTOLIQUIDACION.", "-100,00€", MovementType.EXPENSE),
+        ("CONSTITUCION DEPOSITO SUBASTAS", "-500,00€", MovementType.EXTERNAL_WITHDRAWAL),
+        ("LIBERACION DEPOSITO SUBASTAS", "500,00€", MovementType.EXTERNAL_DEPOSIT),
+    ],
+)
+def test_santander_wordings_are_recognized_without_a_warning(
+    tmp_path: Path, concepto: str, amount: str, movement_type: MovementType
+) -> None:
+    """Owner's real export: ~190 rows of these wordings each raised an "unrecognized concept"
+    warning they could do nothing about. Each now has its own rule (R-7.10, rules 3, 13-16)."""
+
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = concepto
+        ws["D9"] = amount
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="wordings.xlsx")
+    result = bank_xlsx.parse(path)
+    entry = next(e for e in result.entries if e.source_row == 9)
+    assert (entry.movement_type, entry.counterparty_name) == (movement_type, None)
+    assert not any(concepto in w.message for w in result.warnings)
+
+
+@pytest.mark.parametrize(
+    "concepto", ["EMISION", "0000DOCUMENTOS DE INGRESO PARCIAL.", "REINTEGRADO"]
+)
+def test_wordings_with_no_rule_still_warn(tmp_path: Path, concepto: str) -> None:
+    def mutate(ws: Worksheet) -> None:
+        ws["C9"] = concepto
+        ws["D9"] = "-1,00€"
+
+    path = bank_xlsx_with(tmp_path, mutate, filename="unknown.xlsx")
+    assert any(concepto in w.message for w in bank_xlsx.parse(path).warnings)
+
+
 def test_unrecognized_concept_warning_carries_correct_source_file(tmp_path: Path) -> None:
     def mutate(ws: Worksheet) -> None:
         ws["C9"] = "ALGO TOTALMENTE DESCONOCIDO"
