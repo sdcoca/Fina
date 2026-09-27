@@ -5,7 +5,7 @@ headless Chromium at a real phone width (CLAUDE.md rule 19), every off-origin re
 
 1. `test_accounts_section_might_be_yours_rename_and_files` -- one narrative: loading the broker
    fixture alone opens the Accounts section and its "Might be yours" group on its own (the
-   statement account's group stays closed); the account in the owner's name with no statement
+   statement account is listed directly, in no group); the account in the owner's name with no statement
    is listed there with its transfers and an "Import its statement" button that opens the file
    picker, and no "Mine / Not mine" choice; the figures are the native CLI's; renaming the
    statement account stores the name in the account-names file (version 3, names only) and
@@ -97,7 +97,7 @@ def test_accounts_section_might_be_yours_rename_and_files(
             _wait_for_settled(page)
 
             # A file was loaded and one account might be the owner's: the section and that
-            # group open by themselves, the statement account's group stays closed.
+            # group open by themselves. The statement account is listed directly, in no group.
             assert page.locator("#accounts-section").evaluate("(d) => d.open")
             assert page.evaluate(_OPEN_GROUPS_JS) == ["maybe"]
             assert _summary_dd_texts(page) == expected
@@ -112,7 +112,7 @@ def test_accounts_section_might_be_yours_rename_and_files(
             note = page.locator('#accounts-groups details[data-group="maybe"] .group-note')
             assert note.inner_text() == (
                 "Your statements show transfers to or from these accounts, under the same holder "
-                "name (probably you). Consider adding their statements for accurate tracking:"
+                "name (probably you)."
             )
             assert card.locator("button").all_inner_texts() == ["Import its statement"]
             assert _IBAN not in page.locator("#status-section").inner_text()
@@ -125,7 +125,8 @@ def test_accounts_section_might_be_yours_rename_and_files(
             assert chooser.value.is_multiple()
 
             # The statement account holds its own file; the names file is not listed.
-            _open(page, "statement")
+            assert page.locator(".accounts-list--statements > li").count() == 1
+            assert page.locator("#accounts-groups .accounts-description").count() == 0
             broker = page.locator(_BROKER_CARD)
             assert broker.locator(".account-alias").inner_text() == "Trade Republic"
             assert broker.locator(".stored-file-name").all_inner_texts() == [BROKER_CSV.name]
@@ -160,7 +161,6 @@ def test_accounts_section_might_be_yours_rename_and_files(
             assert page.evaluate(_OPEN_GROUPS_JS) == []
             page.locator("#accounts-section > summary h2").click()
             _open(page, "maybe")
-            _open(page, "statement")
             assert page.locator(_CARD).count() == 1
             assert page.locator(f"{_BROKER_CARD} .account-alias").inner_text() == "Broker"
         finally:

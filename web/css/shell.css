@@ -498,12 +498,6 @@ h2 {
   transform: rotate(90deg);
 }
 
-.accounts-description {
-  margin: 0 0 10px;
-  color: var(--shell-ink-2);
-  font-size: 13.5px;
-}
-
 .accounts-empty {
   margin: 0 0 4px;
   color: var(--shell-muted);
@@ -512,6 +506,11 @@ h2 {
 
 .acc-group {
   border-top: 1px solid var(--shell-border);
+}
+
+/* Statement accounts sit directly in the section, above its collapsible groups. */
+.accounts-list--statements {
+  margin-bottom: 12px;
 }
 
 .acc-group[open] {

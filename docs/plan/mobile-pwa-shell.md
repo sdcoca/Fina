@@ -452,9 +452,10 @@ Supersedes the card order of WP-13..WP-19 (Import, Stored files, Backup, summary
 2. **Chart card** (WP-22a): the page's summary. Framed like every other card; its legend
    carries the three headline figures, so there is no separate summary card.
 3. **Accounts card** (WP-22b), collapsible, with an **Import** button in its header (importing a
-   statement belongs with the accounts it declares; the file picker itself is hidden). Groups:
-   with a statement (each with its own files and their include checkboxes -- no separate
-   "Stored files" card), might be yours (WP-23: accounts in the owner's name with no statement,
+   statement belongs with the accounts it declares; the file picker itself is hidden). Accounts
+   with a statement are listed directly, in no group (each with its own files and their include
+   checkboxes -- no separate "Stored files" card; no intro text, owner's decision 2026-09-27).
+   Collapsible groups below them: might be yours (WP-23: accounts in the owner's name with no statement,
    display only, each with an "Import its statement" button -- the former "Mine / Not mine"
    decision and estimated balances are gone, R-3.4/R-3.8 as revised 2026-09-27), other files
    (not linked to an account yet). Every statement account can be renamed; names are stored in

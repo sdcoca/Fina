@@ -98,9 +98,9 @@
     ></iframe>
   </section>
 
-  <!-- WP-22b/WP-23: every account, after the chart -- statement accounts with their own files
-       (the include checkbox per file lives here; the separate "Stored files" card is gone),
-       then accounts that might be the user's (R-3.8, display only). Collapsed by default;
+  <!-- WP-22b/WP-23: every account, after the chart -- statement accounts listed directly, with
+       their own files (the include checkbox per file lives here; the separate "Stored files" card
+       is gone), then a "Might be yours" group (R-3.8, display only). Collapsed by default;
        after a file is loaded, "Might be yours" opens by itself (web/js/accounts.js). -->
   <details id="accounts-section" class="accounts-section">
     <summary class="acc-summary">
@@ -108,10 +108,6 @@
       <button id="import-button" class="import-button" type="button"
               title="A Trade Republic CSV export or a Spanish bank XLSX export">Import</button>
     </summary>
-    <p class="accounts-description">
-      Every transfer counts as money coming in or going out of the account it appears in.
-      Between two accounts whose statements are both imported, the two sides cancel out.
-    </p>
     <!-- PWA-3.3a: the supported formats are named where the import action lives. -->
     <p id="accounts-empty" class="accounts-empty">
       No files imported yet. Tap Import and pick a Trade Republic CSV export or a Spanish bank

@@ -1,16 +1,16 @@
 // web/js/accounts.js
 //
-// WP-22b/WP-23: the "Accounts" section (after the chart). One card per account, in collapsible
-// groups:
-//   1. "With a statement"  -- accounts a statement declares, with their own files inside (each
-//                             file's include checkbox lives here: the separate "Stored files"
-//                             card is gone). Each can be given a name (alias, stored in the
-//                             account-names file so it travels with the backup).
-//   2. "Might be yours"    -- R-3.8: accounts in the owner's name with no statement, each with
+// WP-22b/WP-23: the "Accounts" section (after the chart). One card per account:
+//   1. Accounts with a statement, listed directly (no group of their own, owner's decision
+//                             2026-09-27), each with its own files inside (each file's include
+//                             checkbox lives here: the separate "Stored files" card is gone).
+//                             Each can be given a name (alias, stored in the account-names file
+//                             so it travels with the backup).
+//   2. "Might be yours"    -- a collapsible group, R-3.8: accounts in the owner's name with no statement, each with
 //                             an "Import its statement" button. Display only: they change no
 //                             figure (owner's decision, 2026-09-27, replacing "Mine / Not
 //                             mine" -- every transfer counts as money in or out, R-3.4).
-//   3. "Other files"       -- stored files not linked to an account yet (they have never been
+//   3. "Other files"       -- a collapsible group: stored files not linked to an account yet (they have never been
 //                             part of a successful run).
 // Collapsed by default; after a file is loaded, the section and "Might be yours" open by
 // themselves when it has accounts. Everything is built with createElement/textContent -- file
@@ -25,13 +25,12 @@ const INSTITUTION_LABELS = {
 };
 
 const GROUPS = [
-  { id: "statement", label: "With a statement" },
   {
     id: "maybe",
     label: "Might be yours",
     note:
       "Your statements show transfers to or from these accounts, under the same holder name " +
-      "(probably you). Consider adding their statements for accurate tracking:",
+      "(probably you).",
   },
   {
     id: "unlinked",
@@ -258,11 +257,11 @@ export function renderAccounts(section, model, handlers, { expandAttention = fal
   }
 
   const cardsByGroup = {
-    statement: model.statementAccounts.map((a) => (root) => _statementCard(root, ctx, a)),
     maybe: model.candidates.map((c) => () => _candidateCard(ctx, c)),
     unlinked: [],
   };
-  const empty = GROUPS.every((g) => cardsByGroup[g.id].length === 0) &&
+  const empty = model.statementAccounts.length === 0 &&
+    model.candidates.length === 0 &&
     model.unlinkedFiles.length === 0;
   emptyEl.hidden = !empty;
   if (empty) {
@@ -270,6 +269,14 @@ export function renderAccounts(section, model, handlers, { expandAttention = fal
   }
 
   groupsEl.replaceChildren();
+  // Accounts with a statement are the list itself (owner's decision, 2026-09-27): no group.
+  if (model.statementAccounts.length > 0) {
+    const list = _el("ul", "accounts-list accounts-list--statements");
+    for (const account of model.statementAccounts) {
+      list.appendChild(_statementCard(groupsEl, ctx, account));
+    }
+    groupsEl.appendChild(list);
+  }
   for (const group of GROUPS) {
     const isUnlinked = group.id === "unlinked";
     const count = isUnlinked ? model.unlinkedFiles.length : cardsByGroup[group.id].length;
