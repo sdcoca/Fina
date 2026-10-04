@@ -27,6 +27,15 @@ _SERIES = {
 }
 
 
+_FCS_SERIES = {
+    "status": True,
+    "response": {
+        "1785456000": {"c": 88.1, "t": 1785456000, "tm": "2026-07-31 00:00:00"},
+        "1788134400": {"c": 90.4, "t": 1788134400, "tm": "2026-08-31 00:00:00"},
+    },
+}
+
+
 def test_probe_keyed_history_and_copy_without_the_key(
     shell_server: str,  # noqa: F811 -- pytest fixture param, not a redefinition
 ) -> None:
@@ -40,6 +49,12 @@ def test_probe_keyed_history_and_copy_without_the_key(
                 status=200 if "access_key=" in url else 401,
                 headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
                 body=json.dumps(body),
+            )
+        elif url.startswith("https://api-v4.fcsapi.com/") and "_public_key=" in url:
+            route.fulfill(
+                status=200,
+                headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+                body=json.dumps(_FCS_SERIES),
             )
         else:
             route.abort()
@@ -55,7 +70,7 @@ def test_probe_keyed_history_and_copy_without_the_key(
 
             page.locator("#probe-button").click()
             page.wait_for_function(
-                "() => document.querySelectorAll('#probe-results li').length === 14"
+                "() => document.querySelectorAll('#probe-results li').length === 13"
             )
             results = page.locator("#probe-results li strong").all_inner_texts()
             assert "marketstack v2: answered (HTTP 401)" in results
@@ -72,8 +87,22 @@ def test_probe_keyed_history_and_copy_without_the_key(
             assert item.locator("strong").inner_text() == (
                 'marketstack v2 history "TEST.XETRA": HTTP 200'
             )
-            assert item.locator(".pc-raw").inner_text().startswith(
-                "3 prices from 2026-06-30 to 2026-08-29; last close 101.5"
+            assert (
+                item.locator(".pc-raw")
+                .inner_text()
+                .startswith("3 prices from 2026-06-30 to 2026-08-29; last close 101.5")
+            )
+
+            # FCS answers with candles keyed by timestamp ({"c": close, "tm": time}).
+            page.locator("#provider").select_option("FCS API (Public Key)")
+            page.locator("#query").fill("XETRA:TEST")
+            page.locator("#history-button").click()
+            fcs = page.locator("#key-results li").nth(1)
+            fcs.wait_for()
+            assert (
+                fcs.locator(".pc-raw")
+                .inner_text()
+                .startswith("2 prices from 2026-07-31 to 2026-08-31; last close 90.4")
             )
 
             page.locator("#copy-button").click()

@@ -9,8 +9,7 @@
 const PROBES = [
   ["marketstack v2", "https://api.marketstack.com/v2/eod?symbols=AAPL"],
   ["marketstack v1", "https://api.marketstack.com/v1/eod?symbols=AAPL"],
-  ["FCS API v4", "https://api-v4.fcsapi.com/stock/latest?symbol=AAPL"],
-  ["FCS API v3", "https://fcsapi.com/api-v3/stock/latest?symbol=AAPL"],
+  ["FCS API", "https://api-v4.fcsapi.com/stock/search?search=AAPL"],
   ["Twelve Data", "https://api.twelvedata.com/symbol_search?symbol=AAPL"],
   ["Alpha Vantage", "https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=IBM&apikey=demo"],
   ["FMP", "https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=AAPL"],
@@ -33,13 +32,16 @@ const PROVIDERS = {
     search: "https://api.marketstack.com/v1/tickers?access_key={KEY}&search={Q}",
     history: "https://api.marketstack.com/v1/eod?access_key={KEY}&symbols={Q}&date_from={FROM}&limit=1000",
   },
-  "FCS API v4": {
-    search: "https://api-v4.fcsapi.com/stock/search?s={Q}&access_key={KEY}",
-    history: "https://api-v4.fcsapi.com/stock/history?symbol={Q}&period=1D&access_key={KEY}",
+  // FCS API v4 (https://fcsapi.com/document/stock-api): "Public Key" is the key a page may
+  // carry -- it only works from the domains allowed in the FCS dashboard (Security -> Allowed
+  // Domains). The access key is the secret one; both work here for the test.
+  "FCS API (Public Key)": {
+    search: "https://api-v4.fcsapi.com/stock/search?search={Q}&_public_key={KEY}",
+    history: "https://api-v4.fcsapi.com/stock/history?symbol={Q}&period=month&length=60&_public_key={KEY}",
   },
-  "FCS API v3": {
-    search: "https://fcsapi.com/api-v3/stock/search?s={Q}&access_key={KEY}",
-    history: "https://fcsapi.com/api-v3/stock/history?symbol={Q}&period=1d&access_key={KEY}",
+  "FCS API (access key)": {
+    search: "https://api-v4.fcsapi.com/stock/search?search={Q}&access_key={KEY}",
+    history: "https://api-v4.fcsapi.com/stock/history?symbol={Q}&period=month&length=60&access_key={KEY}",
   },
   "Twelve Data": {
     search: "https://api.twelvedata.com/symbol_search?symbol={Q}&apikey={KEY}",
@@ -95,7 +97,7 @@ async function _request(url) {
   }
 }
 
-const _DATE_KEYS = ["date", "datetime", "Date", "time"];
+const _DATE_KEYS = ["date", "datetime", "Date", "time", "tm"];
 const _CLOSE_KEYS = ["close", "adj_close", "adjClose", "c", "Close", "price"];
 
 /** Finds the longest array of {date, close}-like rows anywhere in `json`. */
@@ -114,6 +116,14 @@ function _findSeries(json) {
       }
       node.forEach(visit);
     } else if (node && typeof node === "object") {
+      // FCS shape: {"1722519000": {"c": 218.36, "tm": "2024-08-01 13:30:00"}, ...}
+      const values = Object.values(node);
+      if (values.length > 1 && values.every((v) => v && typeof v === "object" && "tm" in v && "c" in v)) {
+        const rows = values.map((v) => ({ date: String(v.tm).slice(0, 10), close: v.c }));
+        if (!best || rows.length > best.length) {
+          best = rows;
+        }
+      }
       // Alpha Vantage shape: {"2026-08-29": {"4. close": "..."}, ...}
       const dated = Object.keys(node).filter((k) => /^\d{4}-\d{2}-\d{2}/.test(k));
       if (dated.length > 1) {
